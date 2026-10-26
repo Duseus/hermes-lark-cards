@@ -310,6 +310,21 @@ class FeishuClient:
             lambda: self._client.cardkit.v1.card.asettings(request),
         )
 
+    async def upload_image_bytes(self, data: bytes) -> str | None:
+        """上传二进制图片数据到飞书，返回 img_key."""
+        if not data:
+            return None
+        file = io.BytesIO(data)
+        request = (
+            CreateImageRequest.builder()
+            .request_body(CreateImageRequestBody.builder().image_type("message").image(file).build())
+            .build()
+        )
+        resp = await self._client.im.v1.image.acreate(request)
+        if resp.success() and resp.data and resp.data.image_key:
+            return str(resp.data.image_key)
+        return None
+
     async def upload_image(self, image_url: str) -> str | None:
         """下载远程图片并上传到飞书，返回 img_key."""
         try:
@@ -326,16 +341,7 @@ class FeishuClient:
         if data is None:
             return None
 
-        file = io.BytesIO(data)
-        request = (
-            CreateImageRequest.builder()
-            .request_body(CreateImageRequestBody.builder().image_type("message").image(file).build())
-            .build()
-        )
-        resp = await self._client.im.v1.image.acreate(request)
-        if resp.success() and resp.data and resp.data.image_key:
-            return str(resp.data.image_key)
-        return None
+        return await self.upload_image_bytes(data)
 
     @staticmethod
     def _download_image(url: str, timeout: int = 15) -> bytes | None:

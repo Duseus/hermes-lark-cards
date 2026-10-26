@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.1] - 2026-10-26
+
+### ✨ 高清全彩品牌图标与双层缓存 (HD Brand Icons & Dual-layer Cache)
+
+- **官方高清全彩品牌图标接入 (`custom_icon`)**：
+  - 支持 Google Gemini 官方四色渐变星芒高精图标，以及 Claude、DeepSeek、OpenAI、Qwen 通义千问、Kimi、智谱 GLM 等官方高清品牌素材。
+  - 卡片构建器（`_collapsible_panel` 与 `build_complete_card`）支持动态指定 `icon_img_key`，渲染飞书 CardKit 2.0 原生 `custom_icon` 节点。
+- **智能内存与磁盘双层缓存**：
+  - 首次调用新模型时自动上传内置高清素材至飞书图片服务，并写入本地持久化缓存（`~/.hermes/card_icons_cache.json`）。
+  - 后续直接复用 `img_key`，无额外网络调用与上传延迟；离线或无权限时无缝平滑回退至标准矢量图标（`standard_icon`）。
+- **图片直传增强**：
+  - `FeishuClient` 新增 `upload_image_bytes(data: bytes)`，支持原生内存二进制图片安全上传。
+
+---
+
 ## [0.2.0] - 2026-10-26
 
 ### ✨ 新特性与视觉优化 (Visual & Brand Updates)

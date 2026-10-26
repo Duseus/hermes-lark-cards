@@ -33,14 +33,22 @@ def _collapsible_panel(
     icon_position: str = "right",
     icon_token: str = "down-small-ccm_outlined",
     icon_color: str = "grey",
+    icon_img_key: str | None = None,
     border_color: str = "grey",
 ) -> dict:
-    icon_el = {
-        "tag": "standard_icon",
-        "token": icon_token,
-        "size": "16px 16px",
-        "color": icon_color,
-    }
+    if icon_img_key:
+        icon_el: dict[str, Any] = {
+            "tag": "custom_icon",
+            "img_key": icon_img_key,
+            "size": "16px 16px",
+        }
+    else:
+        icon_el = {
+            "tag": "standard_icon",
+            "token": icon_token,
+            "size": "16px 16px",
+            "color": icon_color,
+        }
     return {
         "tag": "collapsible_panel",
         "expanded": expanded,
@@ -120,6 +128,7 @@ def _build_tool_panel(
     border_color: str = "grey",
     icon_token: str | None = None,
     icon_color: str | None = None,
+    icon_img_key: str | None = None,
 ) -> dict:
     if model_name:
         # 匹配胶囊状态栏模式：Model · 💭 n · 🛠️ n · ⏱️ dur
@@ -168,6 +177,7 @@ def _build_tool_panel(
         elements=children,
         icon_token=chosen_icon,
         icon_color=chosen_color,
+        icon_img_key=icon_img_key,
         border_color=border_color,
     )
     if element_id:
@@ -487,6 +497,7 @@ def build_complete_card(
     body_text_size: str = "normal_v2",
     show_tool_use: bool = True,
     width_mode: str = "default",
+    icon_img_key: str | None = None,
 ) -> dict[str, Any]:
     """完成态流式卡片 — 按 segments 顺序渲染."""
     elements: list[dict] = []
@@ -522,6 +533,7 @@ def build_complete_card(
                     model_name=model_name,
                     reasoning_count=reasoning_count,
                     border_color=border_color,
+                    icon_img_key=icon_img_key,
                 ))
         elif seg.type == SegmentType.ANSWER and seg.text:
             has_answer = True

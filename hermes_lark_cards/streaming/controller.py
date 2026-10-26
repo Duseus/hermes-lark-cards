@@ -8,6 +8,7 @@ from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any
 
 from ..cardkit.builder import build_background_card, build_complete_card, build_cron_card, build_streaming_card_v2
+from ..cardkit.icons import resolve_model_img_key
 from ..cardkit.markdown import (
     _downgrade_tables,
     optimize_markdown_style,
@@ -720,6 +721,9 @@ class StreamingController:
                 log_prefix="CardKit",
             )
 
+        model_name = (session.footer or {}).get("model") if session.footer else None
+        custom_icon_img_key = await resolve_model_img_key(model_name, self._client)
+
         card = build_complete_card(
             segments=active_segments,
             all_tool_steps=all_tool_steps,
@@ -735,6 +739,7 @@ class StreamingController:
             body_text_size=self._cfg.body_text_size,
             show_tool_use=self._cfg.show_tool_use,
             width_mode=self._cfg.width_mode,
+            icon_img_key=custom_icon_img_key,
         )
 
         streaming_closed = False

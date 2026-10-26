@@ -709,3 +709,19 @@ class TestModelIconAndPanelStatus:
         assert abort_panel["border"]["color"] == "yellow"
         assert abort_panel["header"]["icon"]["token"] == "sparks_outlined"
 
+    def test_complete_card_tool_panel_custom_icon_img_key(self) -> None:
+        steps = [_STEP_SUCCESS]
+        card = build_complete_card(
+            segments=[_seg("tool", tool_offset=0, tool_end_offset=1)],
+            all_tool_steps=steps,
+            footer_data={"model": "gemini-1.5-pro", "duration": 5.0},
+            icon_img_key="img_v3_test_gemini_key",
+        )
+        panel = next(e for e in card["body"]["elements"] if e.get("tag") == "collapsible_panel")
+        header = panel["header"]
+        assert header["icon"]["tag"] == "custom_icon"
+        assert header["icon"]["img_key"] == "img_v3_test_gemini_key"
+        assert header["icon"]["size"] == "16px 16px"
+        assert header["icon_position"] == "right"
+
+

@@ -133,3 +133,19 @@ async def test_cardkit_create_does_not_retry_non_transient_error() -> None:
         await client.cardkit_create({"schema": "2.0"})
 
     assert create.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_upload_image_bytes() -> None:
+    create_image = AsyncMock(
+        return_value=_Resp(ok=True, data=SimpleNamespace(image_key="img_v3_test_brand_logo"))
+    )
+    client = FeishuClient.__new__(FeishuClient)
+    client._client = SimpleNamespace(
+        im=SimpleNamespace(v1=SimpleNamespace(image=SimpleNamespace(acreate=create_image)))
+    )
+
+    key = await client.upload_image_bytes(b"fake_png_data")
+    assert key == "img_v3_test_brand_logo"
+    assert create_image.await_count == 1
+

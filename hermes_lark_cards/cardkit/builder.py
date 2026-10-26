@@ -9,6 +9,7 @@ from typing import Any
 from ..streaming.segments import Segment, SegmentType
 from ..streaming.tooluse import ToolDisplayStep
 from .i18n import _LOCALES, _T, _i18n, _t
+from .icons import resolve_model_icon
 from .markdown import (
     _downgrade_tables,
     _split_long_text,
@@ -30,14 +31,16 @@ def _collapsible_panel(
     elements: list[dict],
     vertical_spacing: str = "4px",
     icon_position: str = "right",
+    icon_token: str = "down-small-ccm_outlined",
+    icon_color: str = "grey",
+    border_color: str = "grey",
 ) -> dict:
     icon_el = {
         "tag": "standard_icon",
-        "token": "down-small-ccm_outlined",
+        "token": icon_token,
         "size": "16px 16px",
+        "color": icon_color,
     }
-    if icon_position == "right":
-        icon_el["color"] = "grey"
     return {
         "tag": "collapsible_panel",
         "expanded": expanded,
@@ -48,7 +51,7 @@ def _collapsible_panel(
             "icon_position": icon_position,
             "icon_expanded_angle": -180,
         },
-        "border": {"color": "grey", "corner_radius": "5px"},
+        "border": {"color": border_color, "corner_radius": "5px"},
         "vertical_spacing": vertical_spacing,
         "padding": "8px 8px 8px 8px",
         "elements": elements,
@@ -112,16 +115,42 @@ def _build_tool_panel(
     *,
     expanded: bool = True,
     element_id: str | None = TOOL_PANEL_ELEMENT_ID,
+    model_name: str | None = None,
+    reasoning_count: int | None = None,
+    border_color: str = "grey",
+    icon_token: str | None = None,
+    icon_color: str | None = None,
 ) -> dict:
-    en_t, zh_t = _T["tool_use"]
-    en_parts, zh_parts = [en_t], [zh_t]
-    if steps:
-        tpl_en, tpl_zh = _T["steps"]
-        en_parts.append(tpl_en.format(len(steps), "s" if len(steps) > 1 else ""))
-        zh_parts.append(tpl_zh.format(len(steps), ""))
-    if elapsed_ms > 0:
-        en_parts.append(f"({_format_elapsed(elapsed_ms)})")
-        zh_parts.append(f"({_format_elapsed(elapsed_ms)})")
+    if model_name:
+        # 匹配胶囊状态栏模式：Model · 💭 n · 🛠️ n · ⏱️ dur
+        icon_info = resolve_model_icon(model_name)
+        chosen_icon = icon_token or icon_info["token"]
+        chosen_color = icon_color or icon_info["color"]
+        parts = [model_name]
+        if reasoning_count is not None:
+            parts.append(f"💭 {reasoning_count}")
+        parts.append(f"🛠️ {len(steps)}")
+        if elapsed_ms > 0:
+            s = elapsed_ms / 1000
+            dur = f"{int(s // 60)}m{int(s % 60)}s" if s >= 60 else f"{s:.1f}s"
+            parts.append(f"⏱️ {dur}")
+        title_str = " · ".join(parts)
+        title_content = title_str
+        i18n_content = _i18n(title_str, title_str)
+    else:
+        chosen_icon = icon_token or "down-small-ccm_outlined"
+        chosen_color = icon_color or "grey"
+        en_t, zh_t = _T["tool_use"]
+        en_parts, zh_parts = [en_t], [zh_t]
+        if steps:
+            tpl_en, tpl_zh = _T["steps"]
+            en_parts.append(tpl_en.format(len(steps), "s" if len(steps) > 1 else ""))
+            zh_parts.append(tpl_zh.format(len(steps), ""))
+        if elapsed_ms > 0:
+            en_parts.append(f"({_format_elapsed(elapsed_ms)})")
+            zh_parts.append(f"({_format_elapsed(elapsed_ms)})")
+        title_content = f"🛠️ {' · '.join(en_parts)}"
+        i18n_content = _i18n(f"🛠️ {' · '.join(en_parts)}", f"🛠️ {' · '.join(zh_parts)}")
 
     children: list[dict] = []
     for s in steps:
@@ -131,12 +160,15 @@ def _build_tool_panel(
         expanded=expanded,
         title_el={
             "tag": "plain_text",
-            "content": f"🛠️ {' · '.join(en_parts)}",
-            "i18n_content": _i18n(f"🛠️ {' · '.join(en_parts)}", f"🛠️ {' · '.join(zh_parts)}"),
+            "content": title_content,
+            "i18n_content": i18n_content,
             "text_color": "grey",
             "text_size": "notation",
         },
         elements=children,
+        icon_token=chosen_icon,
+        icon_color=chosen_color,
+        border_color=border_color,
     )
     if element_id:
         panel["element_id"] = element_id
@@ -460,6 +492,14 @@ def build_complete_card(
     elements: list[dict] = []
     has_answer = False
 
+    # 计算面板边框与模型图标属性（完成=绿，中断=黄，错误=红）
+    border_color = "red" if is_error else ("yellow" if is_aborted else "green")
+    model_name = (footer_data or {}).get("model") if footer_data else None
+    reasoning_count = sum(1 for seg in segments if seg.type == SegmentType.REASONING and seg.text)
+    total_elapsed_ms = 0.0
+    if footer_data and isinstance(footer_data.get("duration"), (int, float)):
+        total_elapsed_ms = float(footer_data["duration"]) * 1000
+
     for seg in segments:
         if seg.type == SegmentType.REASONING:
             if seg.text:
@@ -474,7 +514,15 @@ def build_complete_card(
             end = seg.tool_end_offset if seg.tool_end_offset else len(all_tool_steps)
             steps = all_tool_steps[start:end]
             if steps:
-                elements.append(_build_tool_panel(steps, expanded=panel_expanded, element_id=None))
+                elements.append(_build_tool_panel(
+                    steps,
+                    elapsed_ms=total_elapsed_ms if total_elapsed_ms > 0 else (seg.elapsed_ms or 0),
+                    expanded=panel_expanded,
+                    element_id=None,
+                    model_name=model_name,
+                    reasoning_count=reasoning_count,
+                    border_color=border_color,
+                ))
         elif seg.type == SegmentType.ANSWER and seg.text:
             has_answer = True
             content = _downgrade_tables(optimize_markdown_style(seg.text))

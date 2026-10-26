@@ -57,8 +57,10 @@
 
 ## ✨ 核心特性
 
-1. **CardKit v2.0 原生流式**
+1. **CardKit v2.0 原生流式与品牌图标 (Brand Icons)**
    - 使用飞书开放平台最新的 `cardkit.v1` 批量更新与流式卡片 API。
+   - 折叠面板右侧自适应呈现模型专属图标（DeepSeek 蓝鲸 🐋 `whale_outlined`、Claude 橙色星火 ✳️、OpenAI 绿色网络 🌐 等）。
+   - 动态状态边框色彩：正常完成绿框（`green`）、任务中断黄框（`yellow`）、执行出错红框（`red`）。
    - 消息撤回/删除主动识别，防止无效 API 请求循环。
 2. **零侵入 AST Hook 注入**
    - 通过分析 Hermes 网关调度流（`run_inbound.py`、`run_turn.py`、`run_turn_runner.py`、`cron/scheduler_delivery.py`），安全挂载 Hook 点。

@@ -656,3 +656,56 @@ class TestCompleteCardFooter:
         )
         tags = [e.get("tag") for e in card["body"]["elements"]]
         assert "hr" not in tags
+
+
+class TestModelIconAndPanelStatus:
+    def test_resolve_model_icon_mapping(self) -> None:
+        from hermes_lark_cards.cardkit.icons import resolve_model_icon
+        assert resolve_model_icon("DeepSeek-V4.1-Flash") == {"token": "whale_outlined", "color": "blue"}
+        assert resolve_model_icon("claude-3-7-sonnet") == {"token": "sparks_outlined", "color": "orange"}
+        assert resolve_model_icon("gpt-4o") == {"token": "connect_outlined", "color": "green"}
+        assert resolve_model_icon("qwen-max") == {"token": "lightning_outlined", "color": "purple"}
+        assert resolve_model_icon(None) == {"token": "down-small-ccm_outlined", "color": "grey"}
+
+    def test_complete_card_tool_panel_model_icon_and_border(self) -> None:
+        steps = [_STEP_SUCCESS] * 17
+        card = build_complete_card(
+            segments=[
+                _seg("answer", "done"),
+                _seg("tool", tool_offset=0, tool_end_offset=17),
+            ],
+            all_tool_steps=steps,
+            footer_data={"model": "DeepSeek-V4.1-Flash", "duration": 124.0},
+            is_error=False,
+            is_aborted=False,
+        )
+        panel = next(e for e in card["body"]["elements"] if e.get("tag") == "collapsible_panel")
+        assert panel["border"]["color"] == "green"
+        header = panel["header"]
+        assert header["icon"]["token"] == "whale_outlined"
+        assert header["icon"]["color"] == "blue"
+        assert header["icon_position"] == "right"
+        assert "DeepSeek-V4.1-Flash · 💭 0 · 🛠️ 17 · ⏱️ 2m4s" in header["title"]["content"]
+
+    def test_complete_card_tool_panel_error_and_aborted_border(self) -> None:
+        steps = [_STEP_SUCCESS]
+        err_card = build_complete_card(
+            segments=[_seg("tool", tool_offset=0, tool_end_offset=1)],
+            all_tool_steps=steps,
+            footer_data={"model": "gpt-4o", "duration": 5.0},
+            is_error=True,
+        )
+        err_panel = next(e for e in err_card["body"]["elements"] if e.get("tag") == "collapsible_panel")
+        assert err_panel["border"]["color"] == "red"
+        assert err_panel["header"]["icon"]["token"] == "connect_outlined"
+
+        abort_card = build_complete_card(
+            segments=[_seg("tool", tool_offset=0, tool_end_offset=1)],
+            all_tool_steps=steps,
+            footer_data={"model": "claude-3-5-sonnet", "duration": 5.0},
+            is_aborted=True,
+        )
+        abort_panel = next(e for e in abort_card["body"]["elements"] if e.get("tag") == "collapsible_panel")
+        assert abort_panel["border"]["color"] == "yellow"
+        assert abort_panel["header"]["icon"]["token"] == "sparks_outlined"
+

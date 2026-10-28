@@ -53,6 +53,7 @@ hermes_lark_cards = [
   "studio/web/*",
   "studio/web/css/*",
   "studio/web/js/*",
+  "studio/web/assets/icons/*",
 ]
 
 [tool.ruff]

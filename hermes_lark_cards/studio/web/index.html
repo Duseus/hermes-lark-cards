@@ -196,6 +196,20 @@
         <button class="btn-mode" data-mode="streaming" onclick="CardSimulator.setMode('streaming')">🌊 流式打字态预览</button>
       </div>
 
+      <!-- Live Model Switcher for Brand Icon Preview -->
+      <div class="model-selector-bar">
+        <label>🐋 模拟模型品牌图标：</label>
+        <select class="form-select" id="selectPreviewModel" onchange="CardSimulator.setModel(this.value)" style="padding: 4px 8px; font-size: 12px;">
+          <option value="deepseek">DeepSeek (蓝鲸全彩/🐋)</option>
+          <option value="claude">Claude (智能星火/✳️)</option>
+          <option value="openai">OpenAI / GPT-4o (绿色网络/🌐)</option>
+          <option value="gemini">Google Gemini (四色星芒/✨)</option>
+          <option value="qwen">Qwen 通义千问 (灵动闪电/⚡)</option>
+          <option value="kimi">Moonshot Kimi (纸飞机/✈️)</option>
+          <option value="chatglm">智谱 GLM (思维导图/🧠)</option>
+        </select>
+      </div>
+
       <div class="feishu-simulator-wrap" id="simulatorWrap">
         <div id="simulatorCard"></div>
       </div>

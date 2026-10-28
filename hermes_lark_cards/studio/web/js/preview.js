@@ -8,7 +8,7 @@ const MODEL_ICON_MAP = {
   "openai": { name: "GPT-4o", file: "openai-color.svg", fallbackToken: "🌐", color: "#10A37F" },
   "gemini": { name: "Gemini 1.5 Pro", file: "gemini-color.svg", fallbackToken: "✨", color: "#1A73E8" },
   "qwen": { name: "Qwen 2.5 72B", file: "qwen-color.svg", fallbackToken: "⚡", color: "#615CED" },
-  "kimi": { name: "Kimi Moonshot", file: "kimi-color.png", fallbackToken: "✈️", color: "#3B82F6" },
+  "kimi": { name: "Kimi Moonshot", file: "kimi-color.svg", fallbackToken: "✈️", color: "#3B82F6" },
   "chatglm": { name: "GLM-4 Plus", file: "chatglm-color.png", fallbackToken: "🧠", color: "#2563EB" },
 };
 

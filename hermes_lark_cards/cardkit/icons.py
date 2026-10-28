@@ -30,6 +30,9 @@ MODEL_CUSTOM_ASSET_MAPPING: list[tuple[str, str]] = [
     ("qwen", "qwen-color.png"),
     ("kimi", "kimi-color.png"),
     ("glm", "chatglm-color.png"),
+    ("swe", "devin-color.png"),
+    ("devin", "devin-color.png"),
+    ("cognition", "devin-color.png"),
 ]
 
 # 模型名子串 -> 飞书 standard_icon 配置（未上传或回退时使用）
@@ -47,6 +50,9 @@ MODEL_ICON_MAPPING: list[tuple[str, dict[str, str]]] = [
     ("glm", {"token": "mind-mapping_outlined", "color": "blue"}),
     ("doubao", {"token": "chat_outlined", "color": "blue"}),
     ("minimax", {"token": "voice_outlined", "color": "blue"}),
+    ("swe", {"token": "ai-agent_outlined", "color": "purple"}),
+    ("devin", {"token": "ai-agent_outlined", "color": "purple"}),
+    ("cognition", {"token": "ai-agent_outlined", "color": "purple"}),
 ]
 
 DEFAULT_PANEL_ICON: dict[str, str] = {

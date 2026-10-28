@@ -10,6 +10,7 @@ const MODEL_ICON_MAP = {
   "qwen": { name: "Qwen 2.5 72B", file: "qwen-color.svg", fallbackToken: "⚡", color: "#615CED" },
   "kimi": { name: "Kimi Moonshot", file: "kimi-color.svg", fallbackToken: "✈️", color: "#3B82F6" },
   "chatglm": { name: "GLM-4 Plus", file: "chatglm-color.png", fallbackToken: "🧠", color: "#2563EB" },
+  "swe-2": { name: "SWE-2 Max (Devin)", file: "devin-color.svg", fallbackToken: "🧩", color: "#6366F1" },
 };
 
 const CardSimulator = {
@@ -63,7 +64,7 @@ const CardSimulator = {
     const modelName = modelMeta.name;
     const modelIconHtml = `
       <span class="model-brand-icon" title="${modelName}">
-        <img src="assets/icons/${modelMeta.file}?v=0.3.0" alt="${modelName}" onerror="this.outerHTML='${modelMeta.fallbackToken}'" />
+        <img src="assets/icons/${modelMeta.file}?v=0.3.1" alt="${modelName}" onerror="this.outerHTML='${modelMeta.fallbackToken}'" />
       </span>
     `;
 

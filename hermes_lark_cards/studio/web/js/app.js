@@ -7,7 +7,7 @@ window.StudioApp = {
     enabled: true,
     width_mode: "default",
     panel_expanded: false,
-    header: { enabled: false },
+    header: { enabled: false, title: "" },
     body: { text_size: "normal_v2" },
     footer: {
       enabled: true,
@@ -25,11 +25,31 @@ window.StudioApp = {
 
   async init() {
     this.bindEvents();
+    this.setupMobileTabs();
     await this.loadVersion();
     await this.loadPresets();
     await this.loadConfig();
     this.renderFooterChips();
     this.refreshSimulator();
+  },
+
+  setupMobileTabs() {
+    const tabConfig = document.getElementById("tabConfig");
+    const tabPreview = document.getElementById("tabPreview");
+    if (!tabConfig || !tabPreview) return;
+
+    tabConfig.addEventListener("click", () => {
+      document.body.classList.remove("show-preview");
+      tabConfig.classList.add("active");
+      tabPreview.classList.remove("active");
+    });
+
+    tabPreview.addEventListener("click", () => {
+      document.body.classList.add("show-preview");
+      tabPreview.classList.add("active");
+      tabConfig.classList.remove("active");
+      this.refreshSimulator();
+    });
   },
 
   async loadVersion() {
@@ -93,6 +113,9 @@ window.StudioApp = {
     // Toggles
     document.getElementById("toggleEnabled").checked = !!this.state.enabled;
     document.getElementById("toggleHeader").checked = !!(this.state.header && this.state.header.enabled);
+    document.getElementById("inputHeaderTitle").value = (this.state.header && this.state.header.title) || "";
+    this.toggleHeaderTitleVisibility(!!(this.state.header && this.state.header.enabled));
+
     document.getElementById("togglePanelExpanded").checked = !!this.state.panel_expanded;
     document.getElementById("toggleFooter").checked = !!(this.state.footer && this.state.footer.enabled);
     document.getElementById("toggleFooterLabel").checked = !!(this.state.footer && this.state.footer.show_label);
@@ -103,6 +126,13 @@ window.StudioApp = {
     document.getElementById("selectFooterTextSize").value = (this.state.footer && this.state.footer.text_size) || "notation";
 
     this.renderFooterChips();
+  },
+
+  toggleHeaderTitleVisibility(show) {
+    const group = document.getElementById("groupHeaderTitle");
+    if (group) {
+      group.style.display = show ? "flex" : "none";
+    }
   },
 
   renderFooterChips() {
@@ -136,7 +166,6 @@ window.StudioApp = {
     if (!Array.isArray(this.state.footer.fields)) this.state.footer.fields = [];
     if (this.state.footer.fields.length === 0) this.state.footer.fields.push([]);
 
-    // 默认在第一行中切换
     let found = false;
     this.state.footer.fields.forEach(row => {
       const idx = row.indexOf(fieldId);
@@ -163,8 +192,15 @@ window.StudioApp = {
     document.getElementById("toggleHeader").addEventListener("change", e => {
       if (!this.state.header) this.state.header = {};
       this.state.header.enabled = e.target.checked;
+      this.toggleHeaderTitleVisibility(e.target.checked);
       this.refreshSimulator();
     });
+    document.getElementById("inputHeaderTitle").addEventListener("input", e => {
+      if (!this.state.header) this.state.header = {};
+      this.state.header.title = e.target.value;
+      this.refreshSimulator();
+    });
+
     document.getElementById("togglePanelExpanded").addEventListener("change", e => {
       this.state.panel_expanded = e.target.checked;
       this.refreshSimulator();

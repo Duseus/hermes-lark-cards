@@ -149,6 +149,8 @@ def _validate_ui_payload(payload: dict[str, Any]) -> tuple[bool, str]:
             return False, "header 必须是对象"
         if "enabled" in header and not isinstance(header["enabled"], bool):
             return False, "header.enabled 必须是布尔值"
+        if "title" in header and not isinstance(header["title"], str):
+            return False, "header.title 必须是字符串"
 
     if "body" in payload:
         body = payload["body"]
@@ -266,6 +268,7 @@ class StudioRequestHandler(http.server.SimpleHTTPRequestHandler):
             "card_ttl_sec": cfg.card_duration_sec,
             "header": {
                 "enabled": cfg.header_enabled,
+                "title": cfg.header_title,
             },
             "body": {
                 "text_size": cfg.body_text_size,

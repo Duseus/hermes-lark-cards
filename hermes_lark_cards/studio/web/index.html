@@ -2,11 +2,12 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Hermes 流式卡片工作坊 (Visual Card Studio)</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+  <!-- Top Navbar -->
   <header class="navbar">
     <div class="brand">
       <span>🎴 Hermes Lark Cards Studio</span>
@@ -17,6 +18,12 @@
       <button class="btn btn-primary" id="btnSave">💾 保存配置</button>
     </div>
   </header>
+
+  <!-- Mobile Tabbar Switcher -->
+  <nav class="mobile-tabbar">
+    <button class="mobile-tab active" id="tabConfig">⚙️ 配置参数</button>
+    <button class="mobile-tab" id="tabPreview">📱 卡片预览</button>
+  </nav>
 
   <main class="layout-main">
     <!-- Left Configuration Form -->
@@ -58,6 +65,12 @@
               <span class="slider"></span>
             </label>
           </div>
+        </div>
+
+        <div class="form-group" id="groupHeaderTitle" style="display: none;">
+          <div class="form-label">Header 自定义标题文案</div>
+          <input type="text" class="form-input" id="inputHeaderTitle" placeholder="留空则按状态显示默认文案 (如: 💭 Hermes 正在处理…)">
+          <div class="form-desc">留空默认跟随运行状态（处理中/已完成/出错），填写后将固定显示该文本。</div>
         </div>
 
         <div class="form-group">

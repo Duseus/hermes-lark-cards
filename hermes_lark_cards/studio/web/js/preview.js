@@ -27,10 +27,13 @@ const CardSimulator = {
     let headerHtml = "";
     if (headerCfg.enabled) {
       const headerColor = this.mode === "streaming" ? "blue" : "green";
-      const headerText = this.mode === "streaming" ? "💭 Hermes 正在处理…" : "✅ 已完成";
+      let headerText = (headerCfg.title || "").trim();
+      if (!headerText) {
+        headerText = this.mode === "streaming" ? "💭 Hermes 正在处理…" : "✅ 已完成";
+      }
       headerHtml = `
         <div class="feishu-card-header ${headerColor}">
-          <span>${headerText}</span>
+          <span>${this.escapeHtml(headerText)}</span>
         </div>
       `;
     }
@@ -98,6 +101,15 @@ const CardSimulator = {
         ${footerHtml}
       </div>
     `;
+  },
+
+  escapeHtml(str) {
+    return String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   },
 
   togglePanel() {

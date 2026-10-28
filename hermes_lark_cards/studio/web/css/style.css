@@ -37,46 +37,49 @@ header.navbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
+  padding: 0 20px;
   flex-shrink: 0;
+  z-index: 10;
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 600;
   color: var(--primary);
+  white-space: nowrap;
 }
 
 .badge {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   background: #eff6ff;
   color: var(--primary);
-  padding: 2px 8px;
+  padding: 2px 7px;
   border-radius: 12px;
   border: 1px solid #bfdbfe;
 }
 
 .nav-actions {
   display: flex;
-  gap: 12px;
+  gap: 10px;
 }
 
 .btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 16px;
+  padding: 8px 14px;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   border: 1px solid var(--border-color);
   background: #ffffff;
   transition: all 0.2s;
+  white-space: nowrap;
 }
 
 .btn:hover {
@@ -93,14 +96,43 @@ header.navbar {
   background: var(--primary-hover);
 }
 
+/* Tab Bar for Mobile / Small Screens */
+.mobile-tabbar {
+  display: none;
+  background: #ffffff;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.mobile-tab {
+  flex: 1;
+  padding: 10px 0;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-align: center;
+  border-bottom: 2px solid transparent;
+}
+
+.mobile-tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  font-weight: 600;
+}
+
 .layout-main {
   display: flex;
   flex: 1;
   overflow: hidden;
+  position: relative;
 }
 
 .panel-config {
-  width: 520px;
+  width: 500px;
+  min-width: 360px;
   background: #ffffff;
   border-right: 1px solid var(--border-color);
   display: flex;
@@ -116,22 +148,23 @@ header.navbar {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 32px;
+  padding: 32px 24px;
   overflow-y: auto;
 }
 
 .preview-controls {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   margin-bottom: 24px;
   background: #ffffff;
   padding: 6px;
   border-radius: 8px;
   border: 1px solid var(--border-color);
+  max-width: 100%;
 }
 
 .btn-mode {
-  padding: 6px 16px;
+  padding: 6px 14px;
   border-radius: 6px;
   border: none;
   background: transparent;
@@ -139,6 +172,7 @@ header.navbar {
   font-size: 13px;
   font-weight: 500;
   color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .btn-mode.active {
@@ -317,6 +351,7 @@ header.navbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
 }
 
 .form-label {
@@ -330,11 +365,28 @@ header.navbar {
   color: var(--text-muted);
 }
 
+.form-input {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  font-size: 13px;
+  outline: none;
+  background: #ffffff;
+  color: var(--text-main);
+  transition: border-color 0.2s;
+}
+
+.form-input:focus {
+  border-color: var(--primary);
+}
+
 .toggle-switch {
   position: relative;
   display: inline-block;
   width: 40px;
   height: 22px;
+  flex-shrink: 0;
 }
 
 .toggle-switch input {
@@ -453,4 +505,52 @@ select.form-select:focus {
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
   display: none;
   z-index: 1000;
+}
+
+/* ================= Mobile & Small Screen Responsive ================= */
+@media (max-width: 768px) {
+  header.navbar {
+    padding: 0 12px;
+  }
+  .brand span:first-child {
+    font-size: 15px;
+  }
+  .btn {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .mobile-tabbar {
+    display: flex;
+  }
+
+  .layout-main {
+    flex-direction: column;
+  }
+
+  .panel-config {
+    width: 100%;
+    min-width: unset;
+    border-right: none;
+    padding: 16px;
+    display: flex;
+  }
+
+  .panel-preview {
+    width: 100%;
+    padding: 16px 12px;
+    display: none;
+  }
+
+  /* Toggle between tabs on mobile */
+  body.show-preview .panel-config {
+    display: none;
+  }
+  body.show-preview .panel-preview {
+    display: flex;
+  }
+
+  .preset-grid {
+    grid-template-columns: 1fr;
+  }
 }

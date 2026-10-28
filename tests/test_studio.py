@@ -218,3 +218,22 @@ def test_studio_http_server_endpoints(tmp_path, monkeypatch):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_custom_header_title_roundtrip(tmp_path, monkeypatch):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("streaming:\n  enabled: true\n", encoding="utf-8")
+    monkeypatch.setattr("hermes_lark_cards.studio.server._config_path", lambda: cfg_file)
+
+    ui_cfg = {
+        "header": {
+            "enabled": True,
+            "title": "⚡ 智选模型处理中",
+        }
+    }
+    ok, msg = write_streaming_config(ui_cfg)
+    assert ok is True
+
+    saved = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert saved["streaming"]["header"]["enabled"] is True
+    assert saved["streaming"]["header"]["title"] == "⚡ 智选模型处理中"

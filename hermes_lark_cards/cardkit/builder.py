@@ -90,16 +90,24 @@ _HEADER_STATES: dict[str, dict[str, str]] = {
 }
 
 
-def _build_header(status: str) -> dict[str, Any]:
+def _build_header(status: str, title: str | None = None) -> dict[str, Any]:
     """构建卡片级 header — 流式蓝 / 完成绿 / 停止红."""
     cfg = _HEADER_STATES.get(status, _HEADER_STATES["completed"])
-    en_text, zh_text = _T[cfg["i18n_key"]]
-    return {
-        "title": {
+    if title:
+        title_dict = {
+            "tag": "plain_text",
+            "content": title,
+            "i18n_content": _i18n(title, title),
+        }
+    else:
+        en_text, zh_text = _T[cfg["i18n_key"]]
+        title_dict = {
             "tag": "plain_text",
             "content": en_text,
             "i18n_content": _i18n(en_text, zh_text),
-        },
+        }
+    return {
+        "title": title_dict,
         "template": cfg["template"],
     }
 
@@ -453,6 +461,7 @@ def _format_elapsed(ms: float) -> str:
 def build_streaming_card_v2(
     *,
     header_enabled: bool = False,
+    header_title: str | None = None,
     width_mode: str = "default",
 ) -> dict[str, Any]:
     """Initial loading card; content elements are added in segment arrival order."""
@@ -477,7 +486,7 @@ def build_streaming_card_v2(
         "body": {"elements": elements},
     }
     if header_enabled:
-        card["header"] = _build_header("streaming")
+        card["header"] = _build_header("streaming", title=header_title)
     return card
 
 
@@ -494,6 +503,7 @@ def build_complete_card(
     footer_text_size: str = "notation",
     panel_expanded: bool = False,
     header_enabled: bool = False,
+    header_title: str | None = None,
     body_text_size: str = "normal_v2",
     show_tool_use: bool = True,
     width_mode: str = "default",
@@ -577,7 +587,7 @@ def build_complete_card(
     card["body"] = {"elements": elements}
     if header_enabled:
         header_status = "error" if is_error else "stopped" if is_aborted else "completed"
-        card["header"] = _build_header(header_status)
+        card["header"] = _build_header(header_status, title=header_title)
     return card
 
 

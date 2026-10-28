@@ -113,6 +113,15 @@ class Config:
         return bool(header.get("enabled", False))
 
     @property
+    def header_title(self) -> str:
+        """自定义 header 标题文本（若为空则使用默认中英文状态文案）."""
+        sec = self._streaming_sec()
+        header = sec.get("header", {})
+        if not isinstance(header, dict):
+            return ""
+        return str(header.get("title", "") or "").strip()
+
+    @property
     def footer_enabled(self) -> bool:
         """完成态卡片是否显示 footer."""
         sec = self._streaming_sec()

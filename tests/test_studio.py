@@ -84,3 +84,137 @@ def test_write_streaming_config(tmp_path, monkeypatch):
     assert saved_cfg["streaming"]["width_mode"] == "fill"
     assert saved_cfg["streaming"]["header"]["enabled"] is True
     assert saved_cfg["streaming"]["footer"]["fields"] == [["status", "model"]]
+
+import io
+import threading
+import time
+import urllib.request
+import urllib.error
+from http.server import HTTPServer
+from hermes_lark_cards.studio.server import _StudioServer, StudioRequestHandler
+
+
+def test_studio_http_server_endpoints(tmp_path, monkeypatch):
+    """Test actual HTTP endpoints using a live test server on ephemeral port."""
+    cfg_file = tmp_path / "config.yaml"
+    initial_content = {
+        "gateway": {"platforms": {"feishu": {"extra": {"app_id": "test_id"}}}},
+        "streaming": {
+            "enabled": True,
+            "width_mode": "default",
+            "footer": {"fields": [["status", "elapsed"]]},
+        },
+    }
+    cfg_file.write_text(yaml.safe_dump(initial_content), encoding="utf-8")
+    monkeypatch.setattr("hermes_lark_cards.studio.server._config_path", lambda: cfg_file)
+    monkeypatch.setattr("hermes_lark_cards.config._config_path", lambda home=None: cfg_file)
+
+    # Bind to localhost port 0 (ephemeral port)
+    server = _StudioServer(("127.0.0.1", 0), StudioRequestHandler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    base_url = f"http://127.0.0.1:{port}"
+
+    try:
+        # 1. Test Static files
+        with urllib.request.urlopen(f"{base_url}/") as res:
+            assert res.status == 200
+            content = res.read().decode("utf-8")
+            assert "Hermes 流式卡片工作坊" in content
+            assert "Visual Card Studio" in content
+
+        with urllib.request.urlopen(f"{base_url}/css/style.css") as res:
+            assert res.status == 200
+            assert "feishu-simulator-wrap" in res.read().decode("utf-8")
+
+        with urllib.request.urlopen(f"{base_url}/js/app.js") as res:
+            assert res.status == 200
+            assert "StudioApp" in res.read().decode("utf-8")
+
+        with urllib.request.urlopen(f"{base_url}/js/preview.js") as res:
+            assert res.status == 200
+            assert "CardSimulator" in res.read().decode("utf-8")
+
+        # 2. Test GET /api/health
+        with urllib.request.urlopen(f"{base_url}/api/health") as res:
+            assert res.status == 200
+            data = json.loads(res.read().decode("utf-8"))
+            assert data["ok"] is True
+            assert data["version"] == "0.3.0"
+
+        # 3. Test GET /api/presets
+        with urllib.request.urlopen(f"{base_url}/api/presets") as res:
+            assert res.status == 200
+            presets = json.loads(res.read().decode("utf-8"))
+            assert "classic" in presets
+            assert "bubble_wave" in presets
+
+        # 4. Test GET /api/config
+        with urllib.request.urlopen(f"{base_url}/api/config") as res:
+            assert res.status == 200
+            data = json.loads(res.read().decode("utf-8"))
+            assert data["ok"] is True
+            assert data["config"]["width_mode"] == "default"
+            assert data["config"]["enabled"] is True
+
+        # 5. Test POST /api/config (Valid)
+        post_data = json.dumps({
+            "width_mode": "fill",
+            "header": {"enabled": True},
+            "footer": {"fields": [["model", "tokens"]]}
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"{base_url}/api/config",
+            data=post_data,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req) as res:
+            assert res.status == 200
+            resp_data = json.loads(res.read().decode("utf-8"))
+            assert resp_data["ok"] is True
+
+        # Verify config written
+        updated_cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+        assert updated_cfg["streaming"]["width_mode"] == "fill"
+        assert updated_cfg["streaming"]["header"]["enabled"] is True
+        assert updated_cfg["streaming"]["footer"]["fields"] == [["model", "tokens"]]
+
+        # 6. Test POST /api/config (Invalid payload)
+        bad_post_data = json.dumps({
+            "width_mode": "invalid-width-mode"
+        }).encode("utf-8")
+        bad_req = urllib.request.Request(
+            f"{base_url}/api/config",
+            data=bad_post_data,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        try:
+            urllib.request.urlopen(bad_req)
+            assert False, "Should have raised HTTPError"
+        except urllib.error.HTTPError as err:
+            assert err.code == 400
+            body = json.loads(err.read().decode("utf-8"))
+            assert body["ok"] is False
+            assert "不支持的 width_mode" in body["error"]
+
+        # 7. Test POST /api/restart
+        restart_req = urllib.request.Request(
+            f"{base_url}/api/restart",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        try:
+            with urllib.request.urlopen(restart_req) as res:
+                data = json.loads(res.read().decode("utf-8"))
+        except urllib.error.HTTPError as err:
+            data = json.loads(err.read().decode("utf-8"))
+        assert "message" in data or "error" in data
+
+    finally:
+        server.shutdown()
+        server.server_close()

@@ -1,5 +1,5 @@
 /**
- * Studio Application Controller with Multi-row Footer Builder
+ * Studio Application Controller with HTML5 Drag-and-Drop Sequence Canvas
  */
 
 const ALL_FOOTER_FIELDS = [
@@ -31,6 +31,9 @@ window.StudioApp = {
       ]
     }
   },
+  // Flattened token sequence for Drag-and-Drop: e.g. ["status", "elapsed", "model", "__BREAK__", "weather"]
+  sequence: [],
+  dragSourceIndex: null,
   presets: {},
 
   async init() {
@@ -39,7 +42,8 @@ window.StudioApp = {
     await this.loadVersion();
     await this.loadPresets();
     await this.loadConfig();
-    this.renderFooterBuilder();
+    this.buildSequenceFromState();
+    this.renderFooterCanvas();
     this.refreshSimulator();
   },
 
@@ -90,11 +94,50 @@ window.StudioApp = {
       const data = await res.json();
       if (data && data.config) {
         this.state = { ...this.state, ...data.config };
+        this.buildSequenceFromState();
         this.syncForm();
       }
     } catch (e) {
       console.warn("loadConfig failed, using defaults:", e);
+      this.buildSequenceFromState();
     }
+  },
+
+  // Convert 2D fields array [["a", "b"], ["c"]] into sequence ["a", "b", "__BREAK__", "c"]
+  buildSequenceFromState() {
+    const raw = (this.state.footer && this.state.footer.fields) || [];
+    const seq = [];
+    raw.forEach((row, rIdx) => {
+      if (rIdx > 0) seq.push("__BREAK__");
+      if (Array.isArray(row)) {
+        row.forEach(item => {
+          if (item) seq.push(item);
+        });
+      }
+    });
+    this.sequence = seq;
+  },
+
+  // Convert sequence back into 2D fields array
+  syncStateFromSequence() {
+    const fields = [];
+    let currentRow = [];
+    this.sequence.forEach(token => {
+      if (token === "__BREAK__") {
+        if (currentRow.length > 0) {
+          fields.push(currentRow);
+          currentRow = [];
+        }
+      } else {
+        currentRow.push(token);
+      }
+    });
+    if (currentRow.length > 0) {
+      fields.push(currentRow);
+    }
+    if (!this.state.footer) this.state.footer = {};
+    this.state.footer.fields = fields.length > 0 ? fields : [["status", "elapsed"]];
+    this.refreshSimulator();
   },
 
   renderPresets() {
@@ -111,7 +154,9 @@ window.StudioApp = {
     const p = this.presets[presetId];
     if (!p) return;
     this.state = JSON.parse(JSON.stringify(p.config));
+    this.buildSequenceFromState();
     this.syncForm();
+    this.renderFooterCanvas();
     this.refreshSimulator();
     document.querySelectorAll(".preset-card").forEach(el => {
       el.classList.toggle("active", el.dataset.preset === presetId);
@@ -120,7 +165,6 @@ window.StudioApp = {
   },
 
   syncForm() {
-    // Toggles
     document.getElementById("toggleEnabled").checked = !!this.state.enabled;
     document.getElementById("toggleHeader").checked = !!(this.state.header && this.state.header.enabled);
     document.getElementById("inputHeaderTitle").value = (this.state.header && this.state.header.title) || "";
@@ -130,12 +174,11 @@ window.StudioApp = {
     document.getElementById("toggleFooter").checked = !!(this.state.footer && this.state.footer.enabled);
     document.getElementById("toggleFooterLabel").checked = !!(this.state.footer && this.state.footer.show_label);
 
-    // Selects
     document.getElementById("selectWidthMode").value = this.state.width_mode || "default";
     document.getElementById("selectBodyTextSize").value = (this.state.body && this.state.body.text_size) || "normal_v2";
     document.getElementById("selectFooterTextSize").value = (this.state.footer && this.state.footer.text_size) || "notation";
 
-    this.renderFooterBuilder();
+    this.renderFooterCanvas();
   },
 
   toggleHeaderTitleVisibility(show) {
@@ -145,58 +188,50 @@ window.StudioApp = {
     }
   },
 
-  // ── Multi-row & Sorted Footer Builder ──
-  renderFooterBuilder() {
-    const rowsWrap = document.getElementById("footerRowsWrap");
+  // ── Render Drag-and-Drop Canvas & Palette ──
+  renderFooterCanvas() {
+    const canvas = document.getElementById("footerCanvas");
     const availWrap = document.getElementById("footerAvailableWrap");
-    if (!rowsWrap) return;
-
-    if (!this.state.footer) this.state.footer = { fields: [] };
-    if (!Array.isArray(this.state.footer.fields)) this.state.footer.fields = [];
-    if (this.state.footer.fields.length === 0) {
-      this.state.footer.fields.push([]);
-    }
+    if (!canvas) return;
 
     const fieldMap = Object.fromEntries(ALL_FOOTER_FIELDS.map(f => [f.id, f.name]));
     const usedFields = new Set();
 
-    // 1. Render Row Cards
-    rowsWrap.innerHTML = this.state.footer.fields.map((row, rIdx) => {
-      row.forEach(f => usedFields.add(f));
-      const itemsHtml = row.map((fieldId, iIdx) => `
-        <div class="footer-item-tag">
-          <span>${fieldMap[fieldId] || fieldId}</span>
-          ${iIdx > 0 ? `<button class="btn-move" title="左移" onclick="StudioApp.moveFooterField(${rIdx}, ${iIdx}, -1)">◀</button>` : ''}
-          ${iIdx < row.length - 1 ? `<button class="btn-move" title="右移" onclick="StudioApp.moveFooterField(${rIdx}, ${iIdx}, 1)">▶</button>` : ''}
-          <button class="btn-remove" title="移除" onclick="StudioApp.removeFooterField(${rIdx}, ${iIdx})">×</button>
-        </div>
-      `).join("");
-
+    // 1. Render items in sequence
+    canvas.innerHTML = this.sequence.map((token, idx) => {
+      if (token === "__BREAK__") {
+        return `
+          <div class="drag-item break-tag" draggable="true" data-index="${idx}">
+            <span>↵ 换行符</span>
+            <button class="btn-remove" title="删除换行" onclick="StudioApp.removeSequenceItem(${idx}, event)">×</button>
+          </div>
+        `;
+      }
+      usedFields.add(token);
       return `
-        <div class="footer-row-card">
-          <div class="footer-row-header">
-            <span class="footer-row-title">第 ${rIdx + 1} 行</span>
-            <div class="footer-row-actions">
-              ${rIdx > 0 ? `<button class="btn btn-sm" title="上移整行" onclick="StudioApp.moveFooterRow(${rIdx}, -1)">▲</button>` : ''}
-              ${rIdx < this.state.footer.fields.length - 1 ? `<button class="btn btn-sm" title="下移整行" onclick="StudioApp.moveFooterRow(${rIdx}, 1)">▼</button>` : ''}
-              ${this.state.footer.fields.length > 1 ? `<button class="btn btn-sm" style="color: #ef4444;" title="删除整行" onclick="StudioApp.removeFooterRow(${rIdx})">🗑️</button>` : ''}
-            </div>
-          </div>
-          <div class="footer-row-items">
-            ${itemsHtml || '<span style="font-size: 12px; color: #94a3b8;">(本行暂无字段，点击下方标签添加)</span>'}
-          </div>
+        <div class="drag-item field-tag" draggable="true" data-index="${idx}">
+          <span class="drag-handle">⠿</span>
+          <span>${fieldMap[token] || token}</span>
+          <button class="btn-remove" title="移除" onclick="StudioApp.removeSequenceItem(${idx}, event)">×</button>
         </div>
       `;
     }).join("");
 
-    // 2. Render Unused Available Fields
+    if (this.sequence.length === 0) {
+      canvas.innerHTML = `<span style="font-size: 12px; color: #94a3b8; pointer-events: none;">(画板为空，请从下方点击或拖入指标/换行符)</span>`;
+    }
+
+    // Attach HTML5 Drag and Drop listeners to items
+    this.attachDragEvents(canvas);
+
+    // 2. Render Available (unused) fields in palette
     if (availWrap) {
       const unusedFields = ALL_FOOTER_FIELDS.filter(f => !usedFields.has(f.id));
       if (unusedFields.length === 0) {
         availWrap.innerHTML = `<span style="font-size: 12px; color: #94a3b8;">所有指标均已排入底栏</span>`;
       } else {
         availWrap.innerHTML = unusedFields.map(f => `
-          <div class="footer-add-chip" onclick="StudioApp.addFooterField('${f.id}')">
+          <div class="footer-add-chip" onclick="StudioApp.addToken('${f.id}')">
             <span>+ ${f.name}</span>
           </div>
         `).join("");
@@ -204,63 +239,83 @@ window.StudioApp = {
     }
   },
 
-  addFooterRow() {
-    if (!this.state.footer) this.state.footer = { fields: [] };
-    this.state.footer.fields.push([]);
-    this.renderFooterBuilder();
-    this.refreshSimulator();
+  attachDragEvents(canvas) {
+    const items = canvas.querySelectorAll(".drag-item");
+
+    items.forEach(el => {
+      el.addEventListener("dragstart", e => {
+        this.dragSourceIndex = parseInt(el.dataset.index, 10);
+        el.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+      });
+
+      el.addEventListener("dragend", () => {
+        el.classList.remove("dragging");
+        items.forEach(i => i.classList.remove("drop-target"));
+        canvas.classList.remove("drag-over");
+      });
+
+      el.addEventListener("dragover", e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        items.forEach(i => i.classList.remove("drop-target"));
+        el.classList.add("drop-target");
+      });
+
+      el.addEventListener("drop", e => {
+        e.preventDefault();
+        e.stopPropagation();
+        const targetIdx = parseInt(el.dataset.index, 10);
+        if (this.dragSourceIndex !== null && this.dragSourceIndex !== targetIdx) {
+          this.reorderSequence(this.dragSourceIndex, targetIdx);
+        }
+      });
+    });
+
+    canvas.addEventListener("dragover", e => {
+      e.preventDefault();
+      canvas.classList.add("drag-over");
+    });
+
+    canvas.addEventListener("dragleave", () => {
+      canvas.classList.remove("drag-over");
+    });
   },
 
-  removeFooterRow(rIdx) {
-    if (!this.state.footer?.fields) return;
-    this.state.footer.fields.splice(rIdx, 1);
-    if (this.state.footer.fields.length === 0) this.state.footer.fields.push([]);
-    this.renderFooterBuilder();
-    this.refreshSimulator();
+  reorderSequence(fromIdx, toIdx) {
+    if (fromIdx < 0 || fromIdx >= this.sequence.length) return;
+    if (toIdx < 0 || toIdx >= this.sequence.length) return;
+
+    const item = this.sequence.splice(fromIdx, 1)[0];
+    this.sequence.splice(toIdx, 0, item);
+
+    this.renderFooterCanvas();
+    this.syncStateFromSequence();
   },
 
-  moveFooterRow(rIdx, direction) {
-    const fields = this.state.footer?.fields;
-    if (!fields) return;
-    const targetIdx = rIdx + direction;
-    if (targetIdx < 0 || targetIdx >= fields.length) return;
-    const temp = fields[rIdx];
-    fields[rIdx] = fields[targetIdx];
-    fields[targetIdx] = temp;
-    this.renderFooterBuilder();
-    this.refreshSimulator();
+  addToken(token) {
+    this.sequence.push(token);
+    this.renderFooterCanvas();
+    this.syncStateFromSequence();
   },
 
-  addFooterField(fieldId) {
-    if (!this.state.footer) this.state.footer = { fields: [] };
-    if (!this.state.footer.fields.length) this.state.footer.fields.push([]);
-    // 默认加入到最后一行
-    const lastRow = this.state.footer.fields[this.state.footer.fields.length - 1];
-    if (!lastRow.includes(fieldId)) {
-      lastRow.push(fieldId);
+  addBreakToken() {
+    // Avoid double consecutive breaks or leading break
+    if (this.sequence.length === 0 || this.sequence[this.sequence.length - 1] === "__BREAK__") {
+      this.toast("已在行末，无需重复添加换行符");
+      return;
     }
-    this.renderFooterBuilder();
-    this.refreshSimulator();
+    this.sequence.push("__BREAK__");
+    this.renderFooterCanvas();
+    this.syncStateFromSequence();
   },
 
-  removeFooterField(rIdx, iIdx) {
-    const row = this.state.footer?.fields?.[rIdx];
-    if (!row) return;
-    row.splice(iIdx, 1);
-    this.renderFooterBuilder();
-    this.refreshSimulator();
-  },
-
-  moveFooterField(rIdx, iIdx, direction) {
-    const row = this.state.footer?.fields?.[rIdx];
-    if (!row) return;
-    const targetIdx = iIdx + direction;
-    if (targetIdx < 0 || targetIdx >= row.length) return;
-    const temp = row[iIdx];
-    row[iIdx] = row[targetIdx];
-    row[targetIdx] = temp;
-    this.renderFooterBuilder();
-    this.refreshSimulator();
+  removeSequenceItem(idx, event) {
+    if (event) event.stopPropagation();
+    if (idx < 0 || idx >= this.sequence.length) return;
+    this.sequence.splice(idx, 1);
+    this.renderFooterCanvas();
+    this.syncStateFromSequence();
   },
 
   bindEvents() {
@@ -309,7 +364,7 @@ window.StudioApp = {
       this.refreshSimulator();
     });
 
-    document.getElementById("btnAddFooterRow").addEventListener("click", () => this.addFooterRow());
+    document.getElementById("btnAddBreak").addEventListener("click", () => this.addBreakToken());
     document.getElementById("btnSave").addEventListener("click", () => this.saveConfig());
     document.getElementById("btnRestart").addEventListener("click", () => this.restartGateway());
   },
@@ -320,15 +375,11 @@ window.StudioApp = {
 
   async saveConfig() {
     try {
-      // 过滤掉完全为空的行
-      const cleanState = JSON.parse(JSON.stringify(this.state));
-      if (cleanState.footer && Array.isArray(cleanState.footer.fields)) {
-        cleanState.footer.fields = cleanState.footer.fields.filter(row => row.length > 0);
-      }
+      this.syncStateFromSequence();
       const res = await fetch("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(cleanState)
+        body: JSON.stringify(this.state)
       });
       const data = await res.json();
       if (data && data.ok) {

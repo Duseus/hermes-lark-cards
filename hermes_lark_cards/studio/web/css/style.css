@@ -475,86 +475,100 @@ select.form-select:focus {
   font-size: 13px;
 }
 
-/* ================= Footer Rows & Field Sorting ================= */
-.footer-rows-builder {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 4px;
-}
-
-.footer-row-card {
+/* ================= Drag & Drop Footer Sequence Canvas ================= */
+.footer-canvas {
   background: #f8fafc;
-  border: 1px solid var(--border-color);
+  border: 1.5px dashed #cbd5e1;
   border-radius: 8px;
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.footer-row-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.footer-row-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: #475569;
-}
-
-.footer-row-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.footer-row-items {
+  padding: 12px;
+  min-height: 100px;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  min-height: 32px;
   align-items: center;
+  align-content: flex-start;
+  gap: 8px;
+  transition: all 0.2s;
 }
 
-.footer-item-tag {
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
-  padding: 4px 8px;
+.footer-canvas.drag-over {
+  background: #eff6ff;
+  border-color: var(--primary);
+}
+
+.drag-item {
+  padding: 6px 10px;
   border-radius: 6px;
   font-size: 12px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  cursor: grab;
+  user-select: none;
+  transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
 }
 
-.footer-item-tag .btn-move {
-  cursor: pointer;
+.drag-item:active {
+  cursor: grabbing;
+}
+
+.drag-item.dragging {
+  opacity: 0.4;
+  transform: scale(0.95);
+}
+
+.drag-item.drop-target {
+  border-left: 3px solid var(--primary);
+}
+
+/* Field token tag */
+.drag-item.field-tag {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: var(--text-main);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+
+.drag-item.field-tag .drag-handle {
   color: #94a3b8;
   font-size: 11px;
-  padding: 0 2px;
-  border: none;
-  background: transparent;
 }
 
-.footer-item-tag .btn-move:hover {
-  color: var(--primary);
-}
-
-.footer-item-tag .btn-remove {
+.drag-item.field-tag .btn-remove {
   cursor: pointer;
-  color: #ef4444;
+  color: #94a3b8;
   font-size: 13px;
   border: none;
   background: transparent;
   padding: 0 2px;
 }
 
-.footer-available-wrap {
-  margin-top: 6px;
+.drag-item.field-tag .btn-remove:hover {
+  color: #ef4444;
+}
+
+/* Breakline tag: represents a line-break '\n' */
+.drag-item.break-tag {
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  color: #b91c1c;
+  font-weight: 600;
+  cursor: grab;
+}
+
+.drag-item.break-tag .btn-remove {
+  color: #ef4444;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  padding: 0 2px;
+}
+
+/* Palette / Available area */
+.footer-tools-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
 }
 
 .footer-available-chips {
@@ -566,7 +580,7 @@ select.form-select:focus {
 
 .footer-add-chip {
   background: #eff6ff;
-  border: 1px dashed #93c5fd;
+  border: 1px solid #bfdbfe;
   color: var(--primary);
   padding: 4px 10px;
   border-radius: 14px;
@@ -580,7 +594,26 @@ select.form-select:focus {
 
 .footer-add-chip:hover {
   background: #dbeafe;
-  border-style: solid;
+  border-color: var(--primary);
+}
+
+.btn-add-break {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btn-add-break:hover {
+  background: #fee2e2;
 }
 
 .toast {

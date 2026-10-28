@@ -124,8 +124,8 @@
       <!-- Footer -->
       <div class="config-section">
         <div class="section-title">
-          <span>📊 统一指标底栏 (Footer 多行排版 & 排序)</span>
-          <button class="btn btn-sm" id="btnAddFooterRow">➕ 添加换行</button>
+          <span>📊 统一指标底栏 (拖动排版 & 换行)</span>
+          <button class="btn-add-break" id="btnAddBreak">↵ 插入换行符</button>
         </div>
         <div class="form-group">
           <div class="form-row">
@@ -166,15 +166,15 @@
           </div>
         </div>
 
-        <!-- Multi-row visual builder -->
+        <!-- Drag & Drop Sequence Canvas -->
         <div class="form-group">
-          <div class="form-label">底栏各行排布（点击 ◀ ▶ 调整顺序，▲ ▼ 调整行序）</div>
-          <div class="footer-rows-builder" id="footerRowsWrap"></div>
+          <div class="form-label">指标排列画板（🖱️ 按住任意标签拖动即可重排顺序与换行位置）</div>
+          <div class="footer-canvas" id="footerCanvas"></div>
         </div>
 
-        <!-- Available unselected fields -->
+        <!-- Available Palette -->
         <div class="form-group footer-available-wrap">
-          <div class="form-desc">可添加指标（点击加入末行）：</div>
+          <div class="form-desc">点击添加未使用的指标：</div>
           <div class="footer-available-chips" id="footerAvailableWrap"></div>
         </div>
       </div>

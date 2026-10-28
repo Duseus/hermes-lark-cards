@@ -137,7 +137,7 @@ header.navbar {
 }
 
 .panel-config {
-  width: 520px;
+  width: 530px;
   min-width: 360px;
   background: #ffffff;
   border-right: 1px solid var(--border-color);
@@ -475,28 +475,165 @@ select.form-select:focus {
   font-size: 13px;
 }
 
-/* ================= Drag & Drop Footer Sequence Canvas ================= */
-.footer-canvas {
-  background: #f8fafc;
-  border: 1.5px dashed #cbd5e1;
+/* ================= Custom Template Details Section ================= */
+.template-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.template-card {
+  border: 1px solid var(--border-color);
+  padding: 10px 12px;
   border-radius: 8px;
-  padding: 12px;
-  min-height: 100px;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+}
+
+.template-card:hover {
+  border-color: var(--primary);
+  background: #f8fafc;
+}
+
+.template-card.active {
+  border-color: var(--primary);
+  background: #eff6ff;
+}
+
+.template-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow: hidden;
+}
+
+.template-header-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.template-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-card.active .template-name {
+  color: var(--primary);
+}
+
+.template-time {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.template-meta-badge {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: #f1f5f9;
+  padding: 1px 6px;
+  border-radius: 4px;
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}
+
+.template-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-del-template {
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 15px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.btn-del-template:hover {
+  color: #ef4444;
+  background: #fee2e2;
+}
+
+/* ================= Footer Drag-and-Drop Per-Row Layout ================= */
+.footer-row-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.footer-row-box {
+  background: #f8fafc;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.footer-row-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.footer-row-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  background: #e2e8f0;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.footer-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.footer-row-dropzone {
+  min-height: 42px;
+  background: #ffffff;
+  border: 1.5px dashed #cbd5e1;
+  border-radius: 6px;
+  padding: 6px 8px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  align-content: flex-start;
   gap: 8px;
   transition: all 0.2s;
 }
 
-.footer-canvas.drag-over {
+.footer-row-dropzone.drag-over {
   background: #eff6ff;
   border-color: var(--primary);
 }
 
 .drag-item {
-  padding: 6px 10px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  padding: 5px 10px;
   border-radius: 6px;
   font-size: 12px;
   display: inline-flex;
@@ -504,7 +641,8 @@ select.form-select:focus {
   gap: 6px;
   cursor: grab;
   user-select: none;
-  transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  transition: transform 0.15s, opacity 0.15s;
 }
 
 .drag-item:active {
@@ -520,20 +658,12 @@ select.form-select:focus {
   border-left: 3px solid var(--primary);
 }
 
-/* Field token tag */
-.drag-item.field-tag {
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
-  color: var(--text-main);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
-}
-
-.drag-item.field-tag .drag-handle {
+.drag-handle {
   color: #94a3b8;
-  font-size: 11px;
+  font-size: 12px;
 }
 
-.drag-item.field-tag .btn-remove {
+.drag-item .btn-remove {
   cursor: pointer;
   color: #94a3b8;
   font-size: 13px;
@@ -542,33 +672,12 @@ select.form-select:focus {
   padding: 0 2px;
 }
 
-.drag-item.field-tag .btn-remove:hover {
+.drag-item .btn-remove:hover {
   color: #ef4444;
 }
 
-/* Breakline tag: represents a line-break '\n' */
-.drag-item.break-tag {
-  background: #fee2e2;
-  border: 1px solid #fca5a5;
-  color: #b91c1c;
-  font-weight: 600;
-  cursor: grab;
-}
-
-.drag-item.break-tag .btn-remove {
-  color: #ef4444;
-  cursor: pointer;
-  border: none;
-  background: transparent;
-  padding: 0 2px;
-}
-
-/* Palette / Available area */
-.footer-tools-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 4px;
+.footer-available-wrap {
+  margin-top: 6px;
 }
 
 .footer-available-chips {
@@ -597,23 +706,44 @@ select.form-select:focus {
   border-color: var(--primary);
 }
 
-.btn-add-break {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  color: #dc2626;
-  font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  display: inline-flex;
+/* Modal for saving template */
+.modal-mask {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: none;
   align-items: center;
-  gap: 4px;
-  font-weight: 500;
-  transition: all 0.2s;
+  justify-content: center;
+  z-index: 2000;
 }
 
-.btn-add-break:hover {
-  background: #fee2e2;
+.modal-mask.open {
+  display: flex;
+}
+
+.modal-box {
+  background: #ffffff;
+  border-radius: 10px;
+  width: 90%;
+  max-width: 420px;
+  padding: 20px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
 }
 
 .toast {
@@ -675,100 +805,4 @@ select.form-select:focus {
   .preset-grid {
     grid-template-columns: 1fr;
   }
-}
-
-/* Custom Template Section */
-.template-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.template-card {
-  border: 1px solid var(--border-color);
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.template-card:hover {
-  border-color: var(--primary);
-  background: #f8fafc;
-}
-
-.template-card.active {
-  border-color: var(--primary);
-  background: #eff6ff;
-  color: var(--primary);
-  font-weight: 500;
-}
-
-.template-name {
-  font-size: 13px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.btn-del-template {
-  border: none;
-  background: transparent;
-  color: #94a3b8;
-  font-size: 14px;
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 4px;
-  transition: color 0.15s;
-}
-
-.btn-del-template:hover {
-  color: #ef4444;
-  background: #fee2e2;
-}
-
-/* Modal for saving template */
-.modal-mask {
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(15, 23, 42, 0.45);
-  display: none;
-  align-items: center;
-  justify-content: center;
-  z-index: 2000;
-}
-
-.modal-mask.open {
-  display: flex;
-}
-
-.modal-box {
-  background: #ffffff;
-  border-radius: 10px;
-  width: 90%;
-  max-width: 400px;
-  padding: 20px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.modal-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 6px;
 }

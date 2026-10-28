@@ -131,8 +131,7 @@
       <!-- Footer -->
       <div class="config-section">
         <div class="section-title">
-          <span>📊 统一指标底栏 (拖动排版 & 换行)</span>
-          <button class="btn-add-break" id="btnAddBreak">↵ 插入换行符</button>
+          <span>📊 统一指标底栏 (按行自由拖拽排布)</span>
         </div>
         <div class="form-group">
           <div class="form-row">
@@ -173,10 +172,13 @@
           </div>
         </div>
 
-        <!-- Drag & Drop Sequence Canvas -->
+        <!-- Multi-row Drag & Drop Container -->
         <div class="form-group">
-          <div class="form-label">指标排列画板（🖱️ 按住任意标签拖动即可重排顺序与换行位置）</div>
-          <div class="footer-canvas" id="footerCanvas"></div>
+          <div class="form-row">
+            <div class="form-label">底栏各行排布（🖱️ 拖拽指标可在同内或跨行重排，支持多行分排）</div>
+            <button class="btn btn-sm" id="btnAddFooterRow">➕ 添加第 N 行</button>
+          </div>
+          <div class="footer-row-container" id="footerRowsContainer"></div>
         </div>
 
         <!-- Available Palette -->

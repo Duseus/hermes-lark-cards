@@ -1,5 +1,5 @@
 /**
- * Studio Application Controller with HTML5 Drag-and-Drop Sequence Canvas
+ * Studio Application Controller with Multi-row Drag & Drop and Detailed Templates
  */
 
 const ALL_FOOTER_FIELDS = [
@@ -31,9 +31,8 @@ window.StudioApp = {
       ]
     }
   },
-  // Flattened token sequence for Drag-and-Drop: e.g. ["status", "elapsed", "model", "__BREAK__", "weather"]
-  sequence: [],
-  dragSourceIndex: null,
+  // Drag-and-drop state across rows
+  dragData: null, // { sourceRow: number, sourceCol: number, fieldId: string }
   presets: {},
   templates: {},
 
@@ -44,8 +43,7 @@ window.StudioApp = {
     await this.loadPresets();
     await this.loadTemplates();
     await this.loadConfig();
-    this.buildSequenceFromState();
-    this.renderFooterCanvas();
+    this.renderFooterRows();
     this.refreshSimulator();
   },
 
@@ -90,59 +88,6 @@ window.StudioApp = {
     }
   },
 
-  async loadConfig() {
-    try {
-      const res = await fetch("/api/config");
-      const data = await res.json();
-      if (data && data.config) {
-        this.state = { ...this.state, ...data.config };
-        this.buildSequenceFromState();
-        this.syncForm();
-      }
-    } catch (e) {
-      console.warn("loadConfig failed, using defaults:", e);
-      this.buildSequenceFromState();
-    }
-  },
-
-  // Convert 2D fields array [["a", "b"], ["c"]] into sequence ["a", "b", "__BREAK__", "c"]
-  buildSequenceFromState() {
-    const raw = (this.state.footer && this.state.footer.fields) || [];
-    const seq = [];
-    raw.forEach((row, rIdx) => {
-      if (rIdx > 0) seq.push("__BREAK__");
-      if (Array.isArray(row)) {
-        row.forEach(item => {
-          if (item) seq.push(item);
-        });
-      }
-    });
-    this.sequence = seq;
-  },
-
-  // Convert sequence back into 2D fields array
-  syncStateFromSequence() {
-    const fields = [];
-    let currentRow = [];
-    this.sequence.forEach(token => {
-      if (token === "__BREAK__") {
-        if (currentRow.length > 0) {
-          fields.push(currentRow);
-          currentRow = [];
-        }
-      } else {
-        currentRow.push(token);
-      }
-    });
-    if (currentRow.length > 0) {
-      fields.push(currentRow);
-    }
-    if (!this.state.footer) this.state.footer = {};
-    this.state.footer.fields = fields.length > 0 ? fields : [["status", "elapsed"]];
-    this.refreshSimulator();
-  },
-
-
   async loadTemplates() {
     try {
       const res = await fetch("/api/templates");
@@ -153,29 +98,89 @@ window.StudioApp = {
     }
   },
 
+  async loadConfig() {
+    try {
+      const res = await fetch("/api/config");
+      const data = await res.json();
+      if (data && data.config) {
+        this.state = { ...this.state, ...data.config };
+        this.syncForm();
+      }
+    } catch (e) {
+      console.warn("loadConfig failed, using defaults:", e);
+    }
+  },
+
+  renderPresets() {
+    const container = document.getElementById("presetGrid");
+    if (!container) return;
+    container.innerHTML = Object.values(this.presets).map(p => `
+      <div class="preset-card" data-preset="${p.id}" onclick="StudioApp.applyPreset('${p.id}')">
+        <div class="preset-name">${p.name}</div>
+      </div>
+    `).join("");
+  },
+
+  applyPreset(presetId) {
+    const p = this.presets[presetId];
+    if (!p) return;
+    this.state = JSON.parse(JSON.stringify(p.config));
+    this.syncForm();
+    this.renderFooterRows();
+    this.refreshSimulator();
+    document.querySelectorAll(".preset-card").forEach(el => {
+      el.classList.toggle("active", el.dataset.preset === presetId);
+    });
+    document.querySelectorAll(".template-card").forEach(el => el.classList.remove("active"));
+    this.toast(`已应用预设: ${p.name}`);
+  },
+
+  // ── Custom Templates with Name, Date, Meta Badge, Delete ──
   renderTemplates() {
     const container = document.getElementById("templateGrid");
     if (!container) return;
     const list = Object.values(this.templates || {});
     if (list.length === 0) {
-      container.innerHTML = `<span style="font-size: 12px; color: #94a3b8; grid-column: span 2;">暂无保存的自定义模板</span>`;
+      container.innerHTML = `<span style="font-size: 12px; color: #94a3b8; padding: 4px 0;">暂无自定义模板，可在下方配置好后点击「⭐ 保存为模板」</span>`;
       return;
     }
-    container.innerHTML = list.map(t => `
-      <div class="template-card" data-template="${t.id}" onclick="StudioApp.applyTemplate('${t.id}')">
-        <span class="template-name" title="${t.name} (${t.updated_at || ''})">${t.name}</span>
-        <button class="btn-del-template" title="删除模板" onclick="StudioApp.deleteTemplate('${t.id}', event)">×</button>
-      </div>
-    `).join("");
+
+    const fieldMap = Object.fromEntries(ALL_FOOTER_FIELDS.map(f => [f.id, f.name]));
+    container.innerHTML = list.map(t => {
+      const cfg = t.config || {};
+      const rows = (cfg.footer && cfg.footer.fields) || [];
+      const summaryParts = [];
+      rows.forEach(r => {
+        if (Array.isArray(r) && r.length) {
+          summaryParts.push(r.map(id => fieldMap[id] || id).join(" · "));
+        }
+      });
+      const summary = summaryParts.join(" / ") || "默认卡片";
+      const timeStr = t.updated_at || "最近更新";
+
+      return `
+        <div class="template-card" data-template="${t.id}" onclick="StudioApp.applyTemplate('${t.id}')">
+          <div class="template-info">
+            <div class="template-header-line">
+              <span class="template-name">${this.escapeHtml(t.name)}</span>
+              <span class="template-time">${this.escapeHtml(timeStr)}</span>
+            </div>
+            <div class="template-meta-badge" title="${this.escapeHtml(summary)}">${this.escapeHtml(summary)}</div>
+          </div>
+          <div class="template-actions">
+            <button class="btn-del-template" title="删除模板" onclick="StudioApp.deleteTemplate('${t.id}', event)">🗑️</button>
+          </div>
+        </div>
+      `;
+    }).join("");
   },
 
   applyTemplate(templateId) {
     const t = this.templates[templateId];
     if (!t || !t.config) return;
     this.state = JSON.parse(JSON.stringify(t.config));
-    this.buildSequenceFromState();
     this.syncForm();
-    this.renderFooterCanvas();
+    this.renderFooterRows();
     this.refreshSimulator();
     document.querySelectorAll(".template-card").forEach(el => {
       el.classList.toggle("active", el.dataset.template === templateId);
@@ -208,7 +213,7 @@ window.StudioApp = {
     }
 
     try {
-      this.syncStateFromSequence();
+      this.cleanFooterState();
       const res = await fetch("/api/templates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -222,7 +227,7 @@ window.StudioApp = {
         this.templates = data.templates || {};
         this.renderTemplates();
         this.closeSaveTemplateModal();
-        this.toast(`🎉 模板「${name}」已保存！`);
+        this.toast(`🎉 模板「${name}」已成功保存！`);
       } else {
         this.toast(`模板保存失败: ${data.error || '未知错误'}`);
       }
@@ -254,30 +259,6 @@ window.StudioApp = {
     }
   },
 
-  renderPresets() {
-    const container = document.getElementById("presetGrid");
-    if (!container) return;
-    container.innerHTML = Object.values(this.presets).map(p => `
-      <div class="preset-card" data-preset="${p.id}" onclick="StudioApp.applyPreset('${p.id}')">
-        <div class="preset-name">${p.name}</div>
-      </div>
-    `).join("");
-  },
-
-  applyPreset(presetId) {
-    const p = this.presets[presetId];
-    if (!p) return;
-    this.state = JSON.parse(JSON.stringify(p.config));
-    this.buildSequenceFromState();
-    this.syncForm();
-    this.renderFooterCanvas();
-    this.refreshSimulator();
-    document.querySelectorAll(".preset-card").forEach(el => {
-      el.classList.toggle("active", el.dataset.preset === presetId);
-    });
-    this.toast(`已应用预设: ${p.name}`);
-  },
-
   syncForm() {
     document.getElementById("toggleEnabled").checked = !!this.state.enabled;
     document.getElementById("toggleHeader").checked = !!(this.state.header && this.state.header.enabled);
@@ -292,7 +273,7 @@ window.StudioApp = {
     document.getElementById("selectBodyTextSize").value = (this.state.body && this.state.body.text_size) || "normal_v2";
     document.getElementById("selectFooterTextSize").value = (this.state.footer && this.state.footer.text_size) || "notation";
 
-    this.renderFooterCanvas();
+    this.renderFooterRows();
   },
 
   toggleHeaderTitleVisibility(show) {
@@ -302,41 +283,50 @@ window.StudioApp = {
     }
   },
 
-  // ── Render Drag-and-Drop Canvas & Palette ──
-  renderFooterCanvas() {
-    const canvas = document.getElementById("footerCanvas");
+  // ── Multi-row Drag & Drop Footer Builder ──
+  renderFooterRows() {
+    const container = document.getElementById("footerRowsContainer");
     const availWrap = document.getElementById("footerAvailableWrap");
-    if (!canvas) return;
+    if (!container) return;
+
+    if (!this.state.footer) this.state.footer = { fields: [] };
+    if (!Array.isArray(this.state.footer.fields) || this.state.footer.fields.length === 0) {
+      this.state.footer.fields = [["status", "elapsed"]];
+    }
 
     const fieldMap = Object.fromEntries(ALL_FOOTER_FIELDS.map(f => [f.id, f.name]));
     const usedFields = new Set();
 
-    // 1. Render items in sequence
-    canvas.innerHTML = this.sequence.map((token, idx) => {
-      if (token === "__BREAK__") {
-        return `
-          <div class="drag-item break-tag" draggable="true" data-index="${idx}">
-            <span>↵ 换行符</span>
-            <button class="btn-remove" title="删除换行" onclick="StudioApp.removeSequenceItem(${idx}, event)">×</button>
-          </div>
-        `;
-      }
-      usedFields.add(token);
-      return `
-        <div class="drag-item field-tag" draggable="true" data-index="${idx}">
+    // 1. Render Each Row Card
+    container.innerHTML = this.state.footer.fields.map((row, rIdx) => {
+      row.forEach(f => usedFields.add(f));
+      const chipsHtml = row.map((fieldId, cIdx) => `
+        <div class="drag-item" draggable="true" data-row="${rIdx}" data-col="${cIdx}">
           <span class="drag-handle">⠿</span>
-          <span>${fieldMap[token] || token}</span>
-          <button class="btn-remove" title="移除" onclick="StudioApp.removeSequenceItem(${idx}, event)">×</button>
+          <span>${fieldMap[fieldId] || fieldId}</span>
+          <button class="btn-remove" title="移除" onclick="StudioApp.removeFieldFromRow(${rIdx}, ${cIdx}, event)">×</button>
+        </div>
+      `).join("");
+
+      return `
+        <div class="footer-row-box" data-row="${rIdx}">
+          <div class="footer-row-header">
+            <span class="footer-row-badge">第 ${rIdx + 1} 行</span>
+            <div class="footer-row-actions">
+              ${rIdx > 0 ? `<button class="btn btn-sm" title="上移行" onclick="StudioApp.moveRow(${rIdx}, -1)">▲</button>` : ''}
+              ${rIdx < this.state.footer.fields.length - 1 ? `<button class="btn btn-sm" title="下移行" onclick="StudioApp.moveRow(${rIdx}, 1)">▼</button>` : ''}
+              ${this.state.footer.fields.length > 1 ? `<button class="btn btn-sm" style="color: #ef4444;" title="删除整行" onclick="StudioApp.deleteRow(${rIdx})">🗑️</button>` : ''}
+            </div>
+          </div>
+          <div class="footer-row-dropzone" data-row="${rIdx}">
+            ${chipsHtml || '<span style="font-size: 12px; color: #94a3b8; pointer-events: none;">(拖动指标到此行，或从下方点击添加)</span>'}
+          </div>
         </div>
       `;
     }).join("");
 
-    if (this.sequence.length === 0) {
-      canvas.innerHTML = `<span style="font-size: 12px; color: #94a3b8; pointer-events: none;">(画板为空，请从下方点击或拖入指标/换行符)</span>`;
-    }
-
-    // Attach HTML5 Drag and Drop listeners to items
-    this.attachDragEvents(canvas);
+    // Attach row-aware Drag & Drop events
+    this.attachRowDragEvents(container);
 
     // 2. Render Available (unused) fields in palette
     if (availWrap) {
@@ -345,7 +335,7 @@ window.StudioApp = {
         availWrap.innerHTML = `<span style="font-size: 12px; color: #94a3b8;">所有指标均已排入底栏</span>`;
       } else {
         availWrap.innerHTML = unusedFields.map(f => `
-          <div class="footer-add-chip" onclick="StudioApp.addToken('${f.id}')">
+          <div class="footer-add-chip" onclick="StudioApp.addFieldToLastRow('${f.id}')">
             <span>+ ${f.name}</span>
           </div>
         `).join("");
@@ -353,83 +343,136 @@ window.StudioApp = {
     }
   },
 
-  attachDragEvents(canvas) {
-    const items = canvas.querySelectorAll(".drag-item");
+  attachRowDragEvents(container) {
+    const items = container.querySelectorAll(".drag-item");
+    const dropzones = container.querySelectorAll(".footer-row-dropzone");
 
     items.forEach(el => {
       el.addEventListener("dragstart", e => {
-        this.dragSourceIndex = parseInt(el.dataset.index, 10);
+        const r = parseInt(el.dataset.row, 10);
+        const c = parseInt(el.dataset.col, 10);
+        const fieldId = this.state.footer.fields[r][c];
+        this.dragData = { sourceRow: r, sourceCol: c, fieldId };
         el.classList.add("dragging");
         e.dataTransfer.effectAllowed = "move";
       });
 
       el.addEventListener("dragend", () => {
         el.classList.remove("dragging");
-        items.forEach(i => i.classList.remove("drop-target"));
-        canvas.classList.remove("drag-over");
+        container.querySelectorAll(".drop-target").forEach(d => d.classList.remove("drop-target"));
+        dropzones.forEach(dz => dz.classList.remove("drag-over"));
+        this.dragData = null;
       });
 
       el.addEventListener("dragover", e => {
         e.preventDefault();
+        e.stopPropagation();
         e.dataTransfer.dropEffect = "move";
-        items.forEach(i => i.classList.remove("drop-target"));
+        container.querySelectorAll(".drop-target").forEach(d => d.classList.remove("drop-target"));
         el.classList.add("drop-target");
       });
 
       el.addEventListener("drop", e => {
         e.preventDefault();
         e.stopPropagation();
-        const targetIdx = parseInt(el.dataset.index, 10);
-        if (this.dragSourceIndex !== null && this.dragSourceIndex !== targetIdx) {
-          this.reorderSequence(this.dragSourceIndex, targetIdx);
-        }
+        if (!this.dragData) return;
+
+        const targetRow = parseInt(el.dataset.row, 10);
+        const targetCol = parseInt(el.dataset.col, 10);
+        const { sourceRow, sourceCol } = this.dragData;
+
+        // Move within or across rows
+        const item = this.state.footer.fields[sourceRow].splice(sourceCol, 1)[0];
+        this.state.footer.fields[targetRow].splice(targetCol, 0, item);
+
+        this.renderFooterRows();
+        this.refreshSimulator();
       });
     });
 
-    canvas.addEventListener("dragover", e => {
-      e.preventDefault();
-      canvas.classList.add("drag-over");
+    dropzones.forEach(dz => {
+      dz.addEventListener("dragover", e => {
+        e.preventDefault();
+        dz.classList.add("drag-over");
+      });
+
+      dz.addEventListener("dragleave", () => {
+        dz.classList.remove("drag-over");
+      });
+
+      dz.addEventListener("drop", e => {
+        e.preventDefault();
+        if (!this.dragData) return;
+
+        const targetRow = parseInt(dz.dataset.row, 10);
+        const { sourceRow, sourceCol } = this.dragData;
+
+        // If dropped onto empty space of the row zone
+        const item = this.state.footer.fields[sourceRow].splice(sourceCol, 1)[0];
+        this.state.footer.fields[targetRow].push(item);
+
+        this.renderFooterRows();
+        this.refreshSimulator();
+      });
     });
-
-    canvas.addEventListener("dragleave", () => {
-      canvas.classList.remove("drag-over");
-    });
   },
 
-  reorderSequence(fromIdx, toIdx) {
-    if (fromIdx < 0 || fromIdx >= this.sequence.length) return;
-    if (toIdx < 0 || toIdx >= this.sequence.length) return;
-
-    const item = this.sequence.splice(fromIdx, 1)[0];
-    this.sequence.splice(toIdx, 0, item);
-
-    this.renderFooterCanvas();
-    this.syncStateFromSequence();
+  addNewRow() {
+    if (!this.state.footer) this.state.footer = { fields: [] };
+    this.state.footer.fields.push([]);
+    this.renderFooterRows();
+    this.refreshSimulator();
   },
 
-  addToken(token) {
-    this.sequence.push(token);
-    this.renderFooterCanvas();
-    this.syncStateFromSequence();
-  },
-
-  addBreakToken() {
-    // Avoid double consecutive breaks or leading break
-    if (this.sequence.length === 0 || this.sequence[this.sequence.length - 1] === "__BREAK__") {
-      this.toast("已在行末，无需重复添加换行符");
-      return;
+  deleteRow(rIdx) {
+    if (!this.state.footer?.fields) return;
+    this.state.footer.fields.splice(rIdx, 1);
+    if (this.state.footer.fields.length === 0) {
+      this.state.footer.fields.push([]);
     }
-    this.sequence.push("__BREAK__");
-    this.renderFooterCanvas();
-    this.syncStateFromSequence();
+    this.renderFooterRows();
+    this.refreshSimulator();
   },
 
-  removeSequenceItem(idx, event) {
+  moveRow(rIdx, direction) {
+    const fields = this.state.footer?.fields;
+    if (!fields) return;
+    const targetIdx = rIdx + direction;
+    if (targetIdx < 0 || targetIdx >= fields.length) return;
+    const temp = fields[rIdx];
+    fields[rIdx] = fields[targetIdx];
+    fields[targetIdx] = temp;
+    this.renderFooterRows();
+    this.refreshSimulator();
+  },
+
+  addFieldToLastRow(fieldId) {
+    if (!this.state.footer) this.state.footer = { fields: [] };
+    if (!this.state.footer.fields.length) this.state.footer.fields.push([]);
+    const lastRow = this.state.footer.fields[this.state.footer.fields.length - 1];
+    if (!lastRow.includes(fieldId)) {
+      lastRow.push(fieldId);
+    }
+    this.renderFooterRows();
+    this.refreshSimulator();
+  },
+
+  removeFieldFromRow(rIdx, cIdx, event) {
     if (event) event.stopPropagation();
-    if (idx < 0 || idx >= this.sequence.length) return;
-    this.sequence.splice(idx, 1);
-    this.renderFooterCanvas();
-    this.syncStateFromSequence();
+    const row = this.state.footer?.fields?.[rIdx];
+    if (!row) return;
+    row.splice(cIdx, 1);
+    this.renderFooterRows();
+    this.refreshSimulator();
+  },
+
+  cleanFooterState() {
+    if (this.state.footer && Array.isArray(this.state.footer.fields)) {
+      this.state.footer.fields = this.state.footer.fields.filter(row => row.length > 0);
+      if (this.state.footer.fields.length === 0) {
+        this.state.footer.fields = [["status", "elapsed"]];
+      }
+    }
   },
 
   bindEvents() {
@@ -478,13 +521,14 @@ window.StudioApp = {
       this.refreshSimulator();
     });
 
-    document.getElementById("btnAddBreak").addEventListener("click", () => this.addBreakToken());
+    document.getElementById("btnAddFooterRow").addEventListener("click", () => this.addNewRow());
     document.getElementById("btnOpenSaveTemplate").addEventListener("click", () => this.openSaveTemplateModal());
     document.getElementById("btnCancelTemplate").addEventListener("click", () => this.closeSaveTemplateModal());
     document.getElementById("btnConfirmSaveTemplate").addEventListener("click", () => this.confirmSaveTemplate());
     document.getElementById("inputTemplateName").addEventListener("keydown", (e) => {
       if (e.key === "Enter") this.confirmSaveTemplate();
     });
+
     document.getElementById("btnSave").addEventListener("click", () => this.saveConfig());
     document.getElementById("btnRestart").addEventListener("click", () => this.restartGateway());
   },
@@ -495,7 +539,7 @@ window.StudioApp = {
 
   async saveConfig() {
     try {
-      this.syncStateFromSequence();
+      this.cleanFooterState();
       const res = await fetch("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -525,6 +569,15 @@ window.StudioApp = {
     } catch (e) {
       this.toast(`重启请求异常: ${e.message}`);
     }
+  },
+
+  escapeHtml(str) {
+    return String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   },
 
   toast(msg) {

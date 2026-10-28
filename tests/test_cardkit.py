@@ -665,7 +665,24 @@ class TestModelIconAndPanelStatus:
         assert resolve_model_icon("claude-3-7-sonnet") == {"token": "sparks_outlined", "color": "orange"}
         assert resolve_model_icon("gpt-4o") == {"token": "connect_outlined", "color": "green"}
         assert resolve_model_icon("qwen-max") == {"token": "lightning_outlined", "color": "purple"}
+        assert resolve_model_icon("swe-2-max") == {"token": "ai-agent_outlined", "color": "purple"}
+        assert resolve_model_icon("devin-swe-2") == {"token": "ai-agent_outlined", "color": "purple"}
+        assert resolve_model_icon("cognition-swe-2") == {"token": "ai-agent_outlined", "color": "purple"}
         assert resolve_model_icon(None) == {"token": "down-small-ccm_outlined", "color": "grey"}
+
+    def test_resolve_swe_model_custom_asset(self) -> None:
+        from hermes_lark_cards.cardkit.icons import (
+            MODEL_CUSTOM_ASSET_MAPPING,
+            get_icon_asset_path,
+        )
+
+        # swe-2 / devin / cognition 关键词均命中 devin 品牌资产映射，且本地文件存在
+        for model_name in ("swe-2-max", "devin-swe-2", "cognition-swe-2"):
+            name = model_name.lower()
+            asset = next(fn for kw, fn in MODEL_CUSTOM_ASSET_MAPPING if kw in name)
+            assert asset == "devin-color.png"
+            asset_path = get_icon_asset_path(asset)
+            assert asset_path is not None and asset_path.is_file()
 
     def test_complete_card_tool_panel_model_icon_and_border(self) -> None:
         steps = [_STEP_SUCCESS] * 17

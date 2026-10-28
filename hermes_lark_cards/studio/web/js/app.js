@@ -1,6 +1,16 @@
 /**
- * Studio Application Controller
+ * Studio Application Controller with Multi-row Footer Builder
  */
+
+const ALL_FOOTER_FIELDS = [
+  { id: "status", name: "完成状态" },
+  { id: "elapsed", name: "运行耗时" },
+  { id: "model", name: "模型名称" },
+  { id: "tokens", name: "Token 吞吐" },
+  { id: "context", name: "上下文进度" },
+  { id: "weather", name: "实时天气" },
+  { id: "hitokoto", name: "灵感一言" }
+];
 
 window.StudioApp = {
   state: {
@@ -29,7 +39,7 @@ window.StudioApp = {
     await this.loadVersion();
     await this.loadPresets();
     await this.loadConfig();
-    this.renderFooterChips();
+    this.renderFooterBuilder();
     this.refreshSimulator();
   },
 
@@ -125,7 +135,7 @@ window.StudioApp = {
     document.getElementById("selectBodyTextSize").value = (this.state.body && this.state.body.text_size) || "normal_v2";
     document.getElementById("selectFooterTextSize").value = (this.state.footer && this.state.footer.text_size) || "notation";
 
-    this.renderFooterChips();
+    this.renderFooterBuilder();
   },
 
   toggleHeaderTitleVisibility(show) {
@@ -135,52 +145,121 @@ window.StudioApp = {
     }
   },
 
-  renderFooterChips() {
-    const container = document.getElementById("footerChipsWrap");
-    if (!container) return;
-    const allFields = [
-      { id: "status", name: "完成状态" },
-      { id: "elapsed", name: "运行耗时" },
-      { id: "model", name: "模型名称" },
-      { id: "tokens", name: "Token 吞吐" },
-      { id: "context", name: "上下文进度" },
-      { id: "weather", name: "实时天气" },
-      { id: "hitokoto", name: "灵感一言" }
-    ];
+  // ── Multi-row & Sorted Footer Builder ──
+  renderFooterBuilder() {
+    const rowsWrap = document.getElementById("footerRowsWrap");
+    const availWrap = document.getElementById("footerAvailableWrap");
+    if (!rowsWrap) return;
 
-    const active = new Set();
-    const fields = (this.state.footer && this.state.footer.fields) || [];
-    fields.forEach(row => {
-      if (Array.isArray(row)) row.forEach(f => active.add(f));
-    });
-
-    container.innerHTML = allFields.map(f => `
-      <div class="footer-chip ${active.has(f.id) ? 'active' : ''}" onclick="StudioApp.toggleFooterField('${f.id}')">
-        ${active.has(f.id) ? '✓ ' : '+ '}${f.name}
-      </div>
-    `).join("");
-  },
-
-  toggleFooterField(fieldId) {
     if (!this.state.footer) this.state.footer = { fields: [] };
     if (!Array.isArray(this.state.footer.fields)) this.state.footer.fields = [];
-    if (this.state.footer.fields.length === 0) this.state.footer.fields.push([]);
-
-    let found = false;
-    this.state.footer.fields.forEach(row => {
-      const idx = row.indexOf(fieldId);
-      if (idx >= 0) {
-        row.splice(idx, 1);
-        found = true;
-      }
-    });
-
-    if (!found) {
-      this.state.footer.fields[0].push(fieldId);
+    if (this.state.footer.fields.length === 0) {
+      this.state.footer.fields.push([]);
     }
 
-    this.state.footer.fields = this.state.footer.fields.filter(r => r.length > 0);
-    this.renderFooterChips();
+    const fieldMap = Object.fromEntries(ALL_FOOTER_FIELDS.map(f => [f.id, f.name]));
+    const usedFields = new Set();
+
+    // 1. Render Row Cards
+    rowsWrap.innerHTML = this.state.footer.fields.map((row, rIdx) => {
+      row.forEach(f => usedFields.add(f));
+      const itemsHtml = row.map((fieldId, iIdx) => `
+        <div class="footer-item-tag">
+          <span>${fieldMap[fieldId] || fieldId}</span>
+          ${iIdx > 0 ? `<button class="btn-move" title="左移" onclick="StudioApp.moveFooterField(${rIdx}, ${iIdx}, -1)">◀</button>` : ''}
+          ${iIdx < row.length - 1 ? `<button class="btn-move" title="右移" onclick="StudioApp.moveFooterField(${rIdx}, ${iIdx}, 1)">▶</button>` : ''}
+          <button class="btn-remove" title="移除" onclick="StudioApp.removeFooterField(${rIdx}, ${iIdx})">×</button>
+        </div>
+      `).join("");
+
+      return `
+        <div class="footer-row-card">
+          <div class="footer-row-header">
+            <span class="footer-row-title">第 ${rIdx + 1} 行</span>
+            <div class="footer-row-actions">
+              ${rIdx > 0 ? `<button class="btn btn-sm" title="上移整行" onclick="StudioApp.moveFooterRow(${rIdx}, -1)">▲</button>` : ''}
+              ${rIdx < this.state.footer.fields.length - 1 ? `<button class="btn btn-sm" title="下移整行" onclick="StudioApp.moveFooterRow(${rIdx}, 1)">▼</button>` : ''}
+              ${this.state.footer.fields.length > 1 ? `<button class="btn btn-sm" style="color: #ef4444;" title="删除整行" onclick="StudioApp.removeFooterRow(${rIdx})">🗑️</button>` : ''}
+            </div>
+          </div>
+          <div class="footer-row-items">
+            ${itemsHtml || '<span style="font-size: 12px; color: #94a3b8;">(本行暂无字段，点击下方标签添加)</span>'}
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    // 2. Render Unused Available Fields
+    if (availWrap) {
+      const unusedFields = ALL_FOOTER_FIELDS.filter(f => !usedFields.has(f.id));
+      if (unusedFields.length === 0) {
+        availWrap.innerHTML = `<span style="font-size: 12px; color: #94a3b8;">所有指标均已排入底栏</span>`;
+      } else {
+        availWrap.innerHTML = unusedFields.map(f => `
+          <div class="footer-add-chip" onclick="StudioApp.addFooterField('${f.id}')">
+            <span>+ ${f.name}</span>
+          </div>
+        `).join("");
+      }
+    }
+  },
+
+  addFooterRow() {
+    if (!this.state.footer) this.state.footer = { fields: [] };
+    this.state.footer.fields.push([]);
+    this.renderFooterBuilder();
+    this.refreshSimulator();
+  },
+
+  removeFooterRow(rIdx) {
+    if (!this.state.footer?.fields) return;
+    this.state.footer.fields.splice(rIdx, 1);
+    if (this.state.footer.fields.length === 0) this.state.footer.fields.push([]);
+    this.renderFooterBuilder();
+    this.refreshSimulator();
+  },
+
+  moveFooterRow(rIdx, direction) {
+    const fields = this.state.footer?.fields;
+    if (!fields) return;
+    const targetIdx = rIdx + direction;
+    if (targetIdx < 0 || targetIdx >= fields.length) return;
+    const temp = fields[rIdx];
+    fields[rIdx] = fields[targetIdx];
+    fields[targetIdx] = temp;
+    this.renderFooterBuilder();
+    this.refreshSimulator();
+  },
+
+  addFooterField(fieldId) {
+    if (!this.state.footer) this.state.footer = { fields: [] };
+    if (!this.state.footer.fields.length) this.state.footer.fields.push([]);
+    // 默认加入到最后一行
+    const lastRow = this.state.footer.fields[this.state.footer.fields.length - 1];
+    if (!lastRow.includes(fieldId)) {
+      lastRow.push(fieldId);
+    }
+    this.renderFooterBuilder();
+    this.refreshSimulator();
+  },
+
+  removeFooterField(rIdx, iIdx) {
+    const row = this.state.footer?.fields?.[rIdx];
+    if (!row) return;
+    row.splice(iIdx, 1);
+    this.renderFooterBuilder();
+    this.refreshSimulator();
+  },
+
+  moveFooterField(rIdx, iIdx, direction) {
+    const row = this.state.footer?.fields?.[rIdx];
+    if (!row) return;
+    const targetIdx = iIdx + direction;
+    if (targetIdx < 0 || targetIdx >= row.length) return;
+    const temp = row[iIdx];
+    row[iIdx] = row[targetIdx];
+    row[targetIdx] = temp;
+    this.renderFooterBuilder();
     this.refreshSimulator();
   },
 
@@ -230,6 +309,7 @@ window.StudioApp = {
       this.refreshSimulator();
     });
 
+    document.getElementById("btnAddFooterRow").addEventListener("click", () => this.addFooterRow());
     document.getElementById("btnSave").addEventListener("click", () => this.saveConfig());
     document.getElementById("btnRestart").addEventListener("click", () => this.restartGateway());
   },
@@ -240,10 +320,15 @@ window.StudioApp = {
 
   async saveConfig() {
     try {
+      // 过滤掉完全为空的行
+      const cleanState = JSON.parse(JSON.stringify(this.state));
+      if (cleanState.footer && Array.isArray(cleanState.footer.fields)) {
+        cleanState.footer.fields = cleanState.footer.fields.filter(row => row.length > 0);
+      }
       const res = await fetch("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(this.state)
+        body: JSON.stringify(cleanState)
       });
       const data = await res.json();
       if (data && data.ok) {

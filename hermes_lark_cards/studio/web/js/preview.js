@@ -63,7 +63,7 @@ const CardSimulator = {
     const modelName = modelMeta.name;
     const modelIconHtml = `
       <span class="model-brand-icon" title="${modelName}">
-        <img src="assets/icons/${modelMeta.file}" alt="${modelName}" onerror="this.outerHTML='${modelMeta.fallbackToken}'" />
+        <img src="assets/icons/${modelMeta.file}?v=0.3.0" alt="${modelName}" onerror="this.outerHTML='${modelMeta.fallbackToken}'" />
       </span>
     `;
 

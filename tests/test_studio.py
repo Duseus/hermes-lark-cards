@@ -237,3 +237,66 @@ def test_custom_header_title_roundtrip(tmp_path, monkeypatch):
     saved = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
     assert saved["streaming"]["header"]["enabled"] is True
     assert saved["streaming"]["header"]["title"] == "⚡ 智选模型处理中"
+
+
+def test_custom_templates_api_crud(tmp_path, monkeypatch):
+    """Test creating, reading, and deleting custom templates."""
+    tpl_file = tmp_path / "card_studio_templates.json"
+    monkeypatch.setattr("hermes_lark_cards.studio.server._get_templates_file", lambda: tpl_file)
+
+    server = _StudioServer(("127.0.0.1", 0), StudioRequestHandler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    base_url = f"http://127.0.0.1:{port}"
+
+    try:
+        # 1. GET /api/templates (initially empty)
+        with urllib.request.urlopen(f"{base_url}/api/templates") as res:
+            assert res.status == 200
+            data = json.loads(res.read().decode("utf-8"))
+            assert data == {}
+
+        # 2. POST /api/templates (Create template)
+        save_req = urllib.request.Request(
+            f"{base_url}/api/templates",
+            data=json.dumps({
+                "id": "my_tpl_1",
+                "name": "极客监控专属模板",
+                "config": {
+                    "width_mode": "compact",
+                    "footer": {"fields": [["status", "elapsed"]]}
+                }
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(save_req) as res:
+            assert res.status == 200
+            resp_data = json.loads(res.read().decode("utf-8"))
+            assert resp_data["ok"] is True
+            assert "my_tpl_1" in resp_data["templates"]
+            assert resp_data["templates"]["my_tpl_1"]["name"] == "极客监控专属模板"
+
+        # 3. GET /api/templates (Verify persisted)
+        with urllib.request.urlopen(f"{base_url}/api/templates") as res:
+            data = json.loads(res.read().decode("utf-8"))
+            assert "my_tpl_1" in data
+
+        # 4. POST /api/templates/delete (Delete template)
+        del_req = urllib.request.Request(
+            f"{base_url}/api/templates/delete",
+            data=json.dumps({"id": "my_tpl_1"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(del_req) as res:
+            assert res.status == 200
+            del_data = json.loads(res.read().decode("utf-8"))
+            assert del_data["ok"] is True
+            assert "my_tpl_1" not in del_data["templates"]
+
+    finally:
+        server.shutdown()
+        server.server_close()

@@ -230,6 +230,40 @@ def write_streaming_config(ui_cfg: dict[str, Any]) -> tuple[bool, str]:
     return True, "配置保存成功"
 
 
+
+def _get_templates_file() -> Path:
+    """获取用户自定义模板持久化文件路径（~/.hermes/card_studio_templates.json）."""
+    try:
+        from ..config import hermes_home
+        home = hermes_home()
+    except Exception:
+        home = Path.home() / ".hermes"
+    home.mkdir(parents=True, exist_ok=True)
+    return home / "card_studio_templates.json"
+
+
+def load_custom_templates() -> dict[str, dict[str, Any]]:
+    path = _get_templates_file()
+    if path.is_file():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except Exception as e:
+            _logger.warning("Failed to load custom templates: %s", e)
+    return {}
+
+
+def save_custom_templates(templates: dict[str, dict[str, Any]]) -> bool:
+    path = _get_templates_file()
+    try:
+        path.write_text(json.dumps(templates, indent=2, ensure_ascii=False), encoding="utf-8")
+        return True
+    except Exception as e:
+        _logger.warning("Failed to save custom templates: %s", e)
+        return False
+
+
 class StudioRequestHandler(http.server.SimpleHTTPRequestHandler):
     """Studio Request Handler serving APIs and frontend static files."""
 
@@ -244,6 +278,9 @@ class StudioRequestHandler(http.server.SimpleHTTPRequestHandler):
         if self.path == "/api/presets":
             self._send_json(200, PRESETS)
             return
+        if self.path == "/api/templates":
+            self._send_json(200, load_custom_templates())
+            return
         if self.path == "/api/config":
             self._handle_get_config()
             return
@@ -255,6 +292,12 @@ class StudioRequestHandler(http.server.SimpleHTTPRequestHandler):
             return
         if self.path == "/api/restart":
             self._handle_restart_gateway()
+            return
+        if self.path == "/api/templates":
+            self._handle_save_template()
+            return
+        if self.path.startswith("/api/templates/delete"):
+            self._handle_delete_template()
             return
         self._send_json(404, {"ok": False, "error": f"Unknown endpoint {self.path}"})
 
@@ -315,6 +358,64 @@ class StudioRequestHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {"ok": True, "restarted": False, "message": "系统未安装 systemctl，配置已保存"})
         except Exception as e:
             self._send_json(500, {"ok": False, "error": str(e)})
+
+    def _handle_save_template(self) -> None:
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8")
+        try:
+            payload = json.loads(body)
+        except Exception as e:
+            self._send_json(400, {"ok": False, "error": f"Invalid JSON: {e}"})
+            return
+
+        name = str(payload.get("name", "")).strip()
+        config = payload.get("config")
+        if not name:
+            self._send_json(400, {"ok": False, "error": "模板名称不能为空"})
+            return
+        if not isinstance(config, dict):
+            self._send_json(400, {"ok": False, "error": "config 必须是对象"})
+            return
+
+        ok, err = _validate_ui_payload(config)
+        if not ok:
+            self._send_json(400, {"ok": False, "error": err})
+            return
+
+        templates = load_custom_templates()
+        template_id = str(payload.get("id") or f"tpl_{int(time.time()*1000)}")
+        templates[template_id] = {
+            "id": template_id,
+            "name": name,
+            "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "config": config,
+        }
+        if save_custom_templates(templates):
+            self._send_json(200, {"ok": True, "id": template_id, "templates": templates})
+        else:
+            self._send_json(500, {"ok": False, "error": "模板保存失败"})
+
+    def _handle_delete_template(self) -> None:
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8")
+        try:
+            payload = json.loads(body)
+        except Exception as e:
+            self._send_json(400, {"ok": False, "error": f"Invalid JSON: {e}"})
+            return
+
+        template_id = str(payload.get("id", "")).strip()
+        if not template_id:
+            self._send_json(400, {"ok": False, "error": "缺少模板 ID"})
+            return
+
+        templates = load_custom_templates()
+        if template_id in templates:
+            del templates[template_id]
+            save_custom_templates(templates)
+            self._send_json(200, {"ok": True, "templates": templates})
+        else:
+            self._send_json(404, {"ok": False, "error": "未找到指定模板"})
 
     def _send_json(self, status: int, data: dict[str, Any]) -> None:
         body = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")

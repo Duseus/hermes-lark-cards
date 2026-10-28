@@ -28,12 +28,19 @@
   <main class="layout-main">
     <!-- Left Configuration Form -->
     <div class="panel-config">
-      <!-- Presets -->
+      <!-- Presets & Custom Templates -->
       <div class="config-section">
         <div class="section-title">
-          <span>🎨 视觉主题预设</span>
+          <span>🎨 视觉预设与自定义模板</span>
+          <button class="btn btn-sm" id="btnOpenSaveTemplate">⭐ 保存当前为模板</button>
         </div>
+        <div class="form-desc" style="margin-bottom: 6px;">出厂推荐预设：</div>
         <div class="preset-grid" id="presetGrid"></div>
+
+        <div style="margin-top: 10px;">
+          <div class="form-desc">我的自定义模板：</div>
+          <div class="template-grid" id="templateGrid"></div>
+        </div>
       </div>
 
       <!-- Core / Header -->
@@ -194,6 +201,21 @@
   </main>
 
   <div class="toast" id="toastMsg"></div>
+  <!-- Save Template Modal Dialog -->
+  <div class="modal-mask" id="templateModal">
+    <div class="modal-box">
+      <div class="modal-title">⭐ 保存当前配置为模板</div>
+      <div class="form-group">
+        <div class="form-label">模板名称</div>
+        <input type="text" class="form-input" id="inputTemplateName" placeholder="例如: 我的大屏极速流式模板" maxlength="30">
+        <div class="form-desc">保存后将持久化保存在本地，方便后续一键载入复用。</div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" id="btnCancelTemplate">取消</button>
+        <button class="btn btn-primary" id="btnConfirmSaveTemplate">确认保存</button>
+      </div>
+    </div>
+  </div>
 
   <script src="js/preview.js"></script>
   <script src="js/app.js"></script>

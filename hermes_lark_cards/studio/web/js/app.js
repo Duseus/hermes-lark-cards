@@ -35,12 +35,14 @@ window.StudioApp = {
   sequence: [],
   dragSourceIndex: null,
   presets: {},
+  templates: {},
 
   async init() {
     this.bindEvents();
     this.setupMobileTabs();
     await this.loadVersion();
     await this.loadPresets();
+    await this.loadTemplates();
     await this.loadConfig();
     this.buildSequenceFromState();
     this.renderFooterCanvas();
@@ -138,6 +140,118 @@ window.StudioApp = {
     if (!this.state.footer) this.state.footer = {};
     this.state.footer.fields = fields.length > 0 ? fields : [["status", "elapsed"]];
     this.refreshSimulator();
+  },
+
+
+  async loadTemplates() {
+    try {
+      const res = await fetch("/api/templates");
+      this.templates = await res.json();
+      this.renderTemplates();
+    } catch (e) {
+      console.warn("loadTemplates failed:", e);
+    }
+  },
+
+  renderTemplates() {
+    const container = document.getElementById("templateGrid");
+    if (!container) return;
+    const list = Object.values(this.templates || {});
+    if (list.length === 0) {
+      container.innerHTML = `<span style="font-size: 12px; color: #94a3b8; grid-column: span 2;">暂无保存的自定义模板</span>`;
+      return;
+    }
+    container.innerHTML = list.map(t => `
+      <div class="template-card" data-template="${t.id}" onclick="StudioApp.applyTemplate('${t.id}')">
+        <span class="template-name" title="${t.name} (${t.updated_at || ''})">${t.name}</span>
+        <button class="btn-del-template" title="删除模板" onclick="StudioApp.deleteTemplate('${t.id}', event)">×</button>
+      </div>
+    `).join("");
+  },
+
+  applyTemplate(templateId) {
+    const t = this.templates[templateId];
+    if (!t || !t.config) return;
+    this.state = JSON.parse(JSON.stringify(t.config));
+    this.buildSequenceFromState();
+    this.syncForm();
+    this.renderFooterCanvas();
+    this.refreshSimulator();
+    document.querySelectorAll(".template-card").forEach(el => {
+      el.classList.toggle("active", el.dataset.template === templateId);
+    });
+    document.querySelectorAll(".preset-card").forEach(el => el.classList.remove("active"));
+    this.toast(`已应用模板: ${t.name}`);
+  },
+
+  openSaveTemplateModal() {
+    const modal = document.getElementById("templateModal");
+    const input = document.getElementById("inputTemplateName");
+    if (modal && input) {
+      input.value = "";
+      modal.classList.add("open");
+      setTimeout(() => input.focus(), 100);
+    }
+  },
+
+  closeSaveTemplateModal() {
+    const modal = document.getElementById("templateModal");
+    if (modal) modal.classList.remove("open");
+  },
+
+  async confirmSaveTemplate() {
+    const input = document.getElementById("inputTemplateName");
+    const name = (input ? input.value : "").trim();
+    if (!name) {
+      this.toast("请输入模板名称");
+      return;
+    }
+
+    try {
+      this.syncStateFromSequence();
+      const res = await fetch("/api/templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name,
+          config: this.state
+        })
+      });
+      const data = await res.json();
+      if (data && data.ok) {
+        this.templates = data.templates || {};
+        this.renderTemplates();
+        this.closeSaveTemplateModal();
+        this.toast(`🎉 模板「${name}」已保存！`);
+      } else {
+        this.toast(`模板保存失败: ${data.error || '未知错误'}`);
+      }
+    } catch (e) {
+      this.toast(`保存请求失败: ${e.message}`);
+    }
+  },
+
+  async deleteTemplate(templateId, event) {
+    if (event) event.stopPropagation();
+    if (!confirm("确定要删除这个自定义模板吗？")) return;
+
+    try {
+      const res = await fetch("/api/templates/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: templateId })
+      });
+      const data = await res.json();
+      if (data && data.ok) {
+        this.templates = data.templates || {};
+        this.renderTemplates();
+        this.toast("模板已删除");
+      } else {
+        this.toast(`删除失败: ${data.error || '未知错误'}`);
+      }
+    } catch (e) {
+      this.toast(`删除请求失败: ${e.message}`);
+    }
   },
 
   renderPresets() {
@@ -365,6 +479,12 @@ window.StudioApp = {
     });
 
     document.getElementById("btnAddBreak").addEventListener("click", () => this.addBreakToken());
+    document.getElementById("btnOpenSaveTemplate").addEventListener("click", () => this.openSaveTemplateModal());
+    document.getElementById("btnCancelTemplate").addEventListener("click", () => this.closeSaveTemplateModal());
+    document.getElementById("btnConfirmSaveTemplate").addEventListener("click", () => this.confirmSaveTemplate());
+    document.getElementById("inputTemplateName").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") this.confirmSaveTemplate();
+    });
     document.getElementById("btnSave").addEventListener("click", () => this.saveConfig());
     document.getElementById("btnRestart").addEventListener("click", () => this.restartGateway());
   },

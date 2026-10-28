@@ -168,6 +168,7 @@ hermes_lark_cards:
 
 | 命令 | 说明 |
 |---|---|
+| `hermes-lark-cards studio` | 启动可视化卡片工作坊（Visual Card Studio），浏览器直观配置版式并实时模拟卡片效果 |
 | `hermes-lark-cards install` | 将 AST 钩子安全注入到 Hermes Gateway 与 Cron 调度模块 |
 | `hermes-lark-cards uninstall` | 移除 AST 钩子并恢复原始文件 |
 | `hermes-lark-cards restore` | 从 `.bak` 备份文件中硬恢复网关源码 |

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hermes 流式卡片工作坊 (Visual Card Studio)</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="navbar">
+    <div class="brand">
+      <span>🎴 Hermes Lark Cards Studio</span>
+      <span class="badge" id="versionBadge">v0.3.0</span>
+    </div>
+    <div class="nav-actions">
+      <button class="btn" id="btnRestart">🔄 重启网关</button>
+      <button class="btn btn-primary" id="btnSave">💾 保存配置</button>
+    </div>
+  </header>
+
+  <main class="layout-main">
+    <!-- Left Configuration Form -->
+    <div class="panel-config">
+      <!-- Presets -->
+      <div class="config-section">
+        <div class="section-title">
+          <span>🎨 视觉主题预设</span>
+        </div>
+        <div class="preset-grid" id="presetGrid"></div>
+      </div>
+
+      <!-- Core / Header -->
+      <div class="config-section">
+        <div class="section-title">
+          <span>🎛️ 基础与版式 (Header & Layout)</span>
+        </div>
+        <div class="form-group">
+          <div class="form-row">
+            <div>
+              <div class="form-label">启用流式卡片</div>
+              <div class="form-desc">开启 CardKit 2.0 实时打字机流式卡片输出</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggleEnabled">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div class="form-row">
+            <div>
+              <div class="form-label">展示卡片 Header</div>
+              <div class="form-desc">显示卡片大标题栏（关闭则直接打字机正文）</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggleHeader">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div class="form-row">
+            <div>
+              <div class="form-label">卡片宽度模式</div>
+              <div class="form-desc">适配不同客户端屏幕与气泡宽度</div>
+            </div>
+            <select class="form-select" id="selectWidthMode">
+              <option value="default">标准 (default)</option>
+              <option value="compact">紧凑 (compact)</option>
+              <option value="fill">充满气泡 (fill)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div class="form-row">
+            <div>
+              <div class="form-label">正文字号</div>
+              <div class="form-desc">流式回复主内容 Markdown 字号大小</div>
+            </div>
+            <select class="form-select" id="selectBodyTextSize">
+              <option value="normal_v2">标准 (normal_v2)</option>
+              <option value="heading">加大 (heading)</option>
+              <option value="notation">微小 (notation)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Process Panel -->
+      <div class="config-section">
+        <div class="section-title">
+          <span>⚙️ 过程折叠面板 (Process Panel)</span>
+        </div>
+        <div class="form-group">
+          <div class="form-row">
+            <div>
+              <div class="form-label">终态保持展开</div>
+              <div class="form-desc">任务完成时工具/思考面板是否保持展开</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="togglePanelExpanded">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="config-section">
+        <div class="section-title">
+          <span>📊 统一指标底栏 (Footer)</span>
+        </div>
+        <div class="form-group">
+          <div class="form-row">
+            <div>
+              <div class="form-label">展示底栏</div>
+              <div class="form-desc">卡片下方汇总展示耗时、Token、天气等指标</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggleFooter">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div class="form-row">
+            <div>
+              <div class="form-label">显示字段标签</div>
+              <div class="form-desc">在指标前增加标签前缀（如 “耗时: 1.2s”）</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggleFooterLabel">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div class="form-row">
+            <div>
+              <div class="form-label">底栏字号</div>
+              <div class="form-desc">注脚字号 (notation) 或标准字号</div>
+            </div>
+            <select class="form-select" id="selectFooterTextSize">
+              <option value="notation">注脚 (notation)</option>
+              <option value="normal_v2">标准 (normal_v2)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div class="form-label" style="margin-bottom: 6px;">底栏字段排布（点击切换）</div>
+          <div class="footer-chip-group" id="footerChipsWrap"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Live Simulator -->
+    <div class="panel-preview">
+      <div class="preview-controls">
+        <button class="btn-mode active" data-mode="completed" onclick="CardSimulator.setMode('completed')">✅ 完成态预览</button>
+        <button class="btn-mode" data-mode="streaming" onclick="CardSimulator.setMode('streaming')">🌊 流式打字态预览</button>
+      </div>
+
+      <div class="feishu-simulator-wrap" id="simulatorWrap">
+        <div id="simulatorCard"></div>
+      </div>
+    </div>
+  </main>
+
+  <div class="toast" id="toastMsg"></div>
+
+  <script src="js/preview.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

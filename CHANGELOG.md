@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0] - 2026-10-27
+
+### ✨ 可视化卡片配置工作坊 (Visual Card Studio)
+
+- **原生零依赖 Visual Card Studio (`hermes-lark-cards studio`)**：
+  - 基于 Python 标准库打造本地可视化配置服务，支持一键浏览器启动。
+  - 安全白名单写入与自动备份保护机制，杜绝配置污染与凭证丢失。
+- **1:1 飞书 CardKit 2.0 原生卡片模拟器**：
+  - 实时响应表单调整，支持流式打字态与完成态卡片双模态切换。
+- **Header 与 Footer 交互式配置**：
+  - 支持大标题切换、卡片宽度模式（default / compact / fill）与正文字号调节。
+  - Footer 指标芯片交互排布，支持状态、耗时、模型、Token、上下文、天气与一言自由组合。
+- **内置三大主题预设**：
+  - 经典科技 (Classic Tech)、泡波轻灵 (Bubble Wave)、极简极速 (Minimalist)。
+
+---
+
+## [0.3.0] - 2026-10-27
+
+### ✨ 可视化卡片配置工作坊 (Visual Card Studio)
+
+- **原生零依赖 Visual Card Studio (`hermes-lark-cards studio`)**：
+  - 基于 Python 标准库打造本地可视化配置服务，支持一键浏览器启动。
+  - 安全白名单写入与自动备份保护机制，杜绝配置污染与凭证丢失。
+- **1:1 飞书 CardKit 2.0 原生卡片模拟器**：
+  - 实时响应表单调整，支持流式打字态与完成态卡片双模态切换。
+- **Header 与 Footer 交互式配置**：
+  - 支持大标题切换、卡片宽度模式（default / compact / fill）与正文字号调节。
+  - Footer 指标芯片交互排布，支持状态、耗时、模型、Token、上下文、天气与一言自由组合。
+- **内置三大主题预设**：
+  - 经典科技 (Classic Tech)、泡波轻灵 (Bubble Wave)、极简极速 (Minimalist)。
+
+---
+
 ## [0.2.1] - 2026-10-26
 
 ### ✨ 高清全彩品牌图标与双层缓存 (HD Brand Icons & Dual-layer Cache)

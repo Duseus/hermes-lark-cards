@@ -1,7 +1,8 @@
-"""CLI 入口: python -m hermes_lark_cards [install|uninstall|status|verify]。"""
+"""CLI 入口: python -m hermes_lark_cards [install|uninstall|status|verify|studio]。"""
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 from collections.abc import Callable
@@ -19,6 +20,9 @@ def main() -> int:
         return 0
 
     cmd = args[0]
+    if cmd == "studio":
+        return _cmd_studio(args[1:])
+
     commands = _commands()
     handler = commands.get(cmd)
     if handler is not None:
@@ -43,11 +47,24 @@ def _print_usage() -> None:
     print("Usage: python -m hermes_lark_cards <command>")
     print()
     print("Commands:")
+    print("  studio     Launch Visual Card Studio configuration workbench")
     print("  install    Apply AST hooks to Hermes gateway and cron modules")
     print("  uninstall  Remove AST patch")
     print("  restore    Restore from backup")
     print("  status     Show current patch status")
     print("  verify     Verify compatibility without patching")
+
+
+def _cmd_studio(argv: list[str]) -> int:
+    from .studio.server import run_studio_server
+
+    parser = argparse.ArgumentParser(description="hermes-lark-cards Visual Card Studio")
+    parser.add_argument("--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=8765, help="Port to listen (default: 8765)")
+    parser.add_argument("--no-browser", action="store_true", help="Do not open browser automatically")
+    parsed = parser.parse_args(argv)
+
+    return run_studio_server(host=parsed.host, port=parsed.port, open_browser=not parsed.no_browser)
 
 
 def _get_patcher() -> Patcher | None:

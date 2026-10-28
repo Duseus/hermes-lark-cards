@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hermes-lark-cards"
-version = "0.2.1"
+version = "0.3.0"
 description = "Feishu/Lark CardKit v2.0 real-time streaming cards for Hermes Agent Gateway"
 readme = "README.md"
 license = { text = "MIT" }
@@ -48,7 +48,12 @@ Issues = "https://github.com/Duseus/hermes-lark-cards/issues"
 include = ["hermes_lark_cards*"]
 
 [tool.setuptools.package-data]
-hermes_lark_cards = ["assets/icons/*"]
+hermes_lark_cards = [
+  "assets/icons/*",
+  "studio/web/*",
+  "studio/web/css/*",
+  "studio/web/js/*",
+]
 
 [tool.ruff]
 target-version = "py311"

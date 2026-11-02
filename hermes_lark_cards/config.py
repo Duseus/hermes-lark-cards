@@ -122,6 +122,15 @@ class Config:
         return str(header.get("title", "") or "").strip()
 
     @property
+    def header_icon_img_key(self) -> str:
+        """原生标题前缀图片 key；loading 仅在流式状态复用现有加载图标。"""
+        header = self._streaming_sec().get("header", {})
+        if not isinstance(header, dict):
+            return ""
+        value = header.get("icon_img_key", "")
+        return value.strip() if isinstance(value, str) else ""
+
+    @property
     def footer_enabled(self) -> bool:
         """完成态卡片是否显示 footer."""
         sec = self._streaming_sec()

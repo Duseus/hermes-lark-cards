@@ -90,7 +90,7 @@ _HEADER_STATES: dict[str, dict[str, str]] = {
 }
 
 
-def _build_header(status: str, title: str | None = None) -> dict[str, Any]:
+def _build_header(status: str, title: str | None = None, icon_img_key: str | None = None) -> dict[str, Any]:
     """构建卡片级 header — 流式蓝 / 完成绿 / 停止红."""
     cfg = _HEADER_STATES.get(status, _HEADER_STATES["completed"])
     if title:
@@ -106,10 +106,16 @@ def _build_header(status: str, title: str | None = None) -> dict[str, Any]:
             "content": en_text,
             "i18n_content": _i18n(en_text, zh_text),
         }
-    return {
+    header: dict[str, Any] = {
         "title": title_dict,
         "template": cfg["template"],
     }
+    key = (icon_img_key or "").strip()
+    if key == "loading":
+        key = _LOADING_IMG_KEY if status == "streaming" else ""
+    if key:
+        header["icon"] = {"tag": "custom_icon", "img_key": key}
+    return header
 
 
 def _loading_element() -> dict:
@@ -462,6 +468,7 @@ def build_streaming_card_v2(
     *,
     header_enabled: bool = False,
     header_title: str | None = None,
+    header_icon_img_key: str | None = None,
     width_mode: str = "default",
 ) -> dict[str, Any]:
     """Initial loading card; content elements are added in segment arrival order."""
@@ -486,7 +493,7 @@ def build_streaming_card_v2(
         "body": {"elements": elements},
     }
     if header_enabled:
-        card["header"] = _build_header("streaming", title=header_title)
+        card["header"] = _build_header("streaming", title=header_title, icon_img_key=header_icon_img_key)
     return card
 
 
@@ -504,6 +511,7 @@ def build_complete_card(
     panel_expanded: bool = False,
     header_enabled: bool = False,
     header_title: str | None = None,
+    header_icon_img_key: str | None = None,
     body_text_size: str = "normal_v2",
     show_tool_use: bool = True,
     width_mode: str = "default",
@@ -587,7 +595,7 @@ def build_complete_card(
     card["body"] = {"elements": elements}
     if header_enabled:
         header_status = "error" if is_error else "stopped" if is_aborted else "completed"
-        card["header"] = _build_header(header_status, title=header_title)
+        card["header"] = _build_header(header_status, title=header_title, icon_img_key=header_icon_img_key)
     return card
 
 

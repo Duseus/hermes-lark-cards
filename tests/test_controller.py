@@ -977,22 +977,6 @@ class TestDispatch:
 
 class TestDoCreateCard:
     @pytest.mark.asyncio
-    async def test_applies_header_icon_to_initial_and_split_cards(self) -> None:
-        ctrl = _setup_ctrl()
-        ctrl._cfg._raw["streaming"]["header"] = {
-            "enabled": True, "icon_img_key": "img_v3_header_test",
-        }
-        session = _make_session("msg_header_icon")
-        await ctrl._do_create_card(session)
-        card = ctrl._client.cardkit_create.await_args.args[0]
-        assert card["header"]["icon"] == {
-            "tag": "custom_icon", "img_key": "img_v3_header_test",
-        }
-        await ctrl._create_streaming_card(session)
-        split_card = ctrl._client.cardkit_create.await_args.args[0]
-        assert split_card["header"]["icon"] == card["header"]["icon"]
-
-    @pytest.mark.asyncio
     async def test_cardkit_success(self) -> None:
         ctrl = _setup_ctrl()
         session = _make_session("msg_create")

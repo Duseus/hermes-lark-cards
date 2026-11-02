@@ -132,26 +132,6 @@ systemctl restart hermes-gateway
 
 ## ⚙️ 配置说明
 
-### 原生 Header 图片图标试验
-
-在现有配置的**顶层** `streaming` 中合并以下设置（不要重复创建 YAML 键）：
-
-```yaml
-streaming:
-  header:
-    enabled: true
-    icon_img_key: "loading"
-```
-
-`loading` 在生成中复用现有加载图片 key，完成、停止或报错后移除。
-也可以填写由同一飞书应用上传 GIF 获得的 `img_v3_...` key；该模式在终态仍保留图片。
-留空关闭图标。这里只接入原生标题**左侧** `custom_icon`，不影响工具面板的模型图标。
-
-这是实验入口：既有加载图片的可用性和 GIF 自动播放需在真实飞书客户端验证，
-本地 JSON 测试或 Studio 预览不代表动画已通过实测。暂不提供 Studio 素材上传控件，
-也不会自动修改当前运行配置或重启网关。
-
-
 在 Hermes 根目录下的 `config.yaml`（通常位于 `~/.hermes/config.yaml`）中配置：
 
 ```yaml

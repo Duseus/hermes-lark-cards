@@ -113,7 +113,6 @@ class StreamingController:
             card = build_streaming_card_v2(
                 header_enabled=self._cfg.header_enabled,
                 header_title=self._cfg.header_title,
-                header_icon_img_key=self._cfg.header_icon_img_key,
                 width_mode=self._cfg.width_mode,
             )
             card_id = await self._client.cardkit_create(card)
@@ -556,7 +555,6 @@ class StreamingController:
             card = build_streaming_card_v2(
                 header_enabled=self._cfg.header_enabled,
                 header_title=self._cfg.header_title,
-                header_icon_img_key=self._cfg.header_icon_img_key,
                 width_mode=self._cfg.width_mode,
             )
             new_card_id = await self._client.cardkit_create(card)
@@ -741,7 +739,6 @@ class StreamingController:
             panel_expanded=self._cfg.panel_expanded,
             header_enabled=self._cfg.header_enabled,
             header_title=self._cfg.header_title,
-            header_icon_img_key=self._cfg.header_icon_img_key,
             body_text_size=self._cfg.body_text_size,
             show_tool_use=self._cfg.show_tool_use,
             width_mode=self._cfg.width_mode,

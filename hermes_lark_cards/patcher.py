@@ -569,9 +569,13 @@ class Patcher:
 
     @property
     def target_paths(self) -> list[Path]:
-        from .split_gateway import GATEWAY_FILES
+        from .split_gateway import GATEWAY_FILES, PROGRESS_FILE
 
-        return [self.run_path, *(self.run_path.parent / name for name in GATEWAY_FILES)]
+        paths = [self.run_path, *(self.run_path.parent / name for name in GATEWAY_FILES)]
+        progress = self.run_path.parent / PROGRESS_FILE
+        if progress.exists():
+            paths.append(progress)
+        return paths
 
     def is_patched(self) -> bool:
         return any(
@@ -593,14 +597,17 @@ class Patcher:
         self.prepare_install()
 
     def prepare_install(self) -> dict[Path, str]:
-        from .split_gateway import inject_gateway
+        from .split_gateway import PROGRESS_FILE, inject_gateway
 
         changes = {}
         for path in self.target_paths:
             if not path.is_file():
                 raise PatcherError(f"Missing split gateway module: {path}")
             content = _clean_hooks(_read_source(path), self.MARKERS)
-            updated = content if path == self.run_path else inject_gateway(path.name, content)
+            updated = content if path == self.run_path else inject_gateway(
+                path.name, content,
+                progress_external=(self.run_path.parent / PROGRESS_FILE).exists(),
+            )
             compile(updated, str(path), "exec")
             changes[path] = updated
         return changes

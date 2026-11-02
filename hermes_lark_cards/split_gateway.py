@@ -11,6 +11,7 @@ import textwrap
 from collections.abc import Callable, Iterator
 
 GATEWAY_FILES = ("run_inbound.py", "run_turn.py", "run_turn_runner.py", "run_busy.py")
+PROGRESS_FILE = "run_turn_progress.py"
 
 
 def _scoped_nodes(node: ast.AST) -> Iterator[ast.AST]:
@@ -21,7 +22,7 @@ def _scoped_nodes(node: ast.AST) -> Iterator[ast.AST]:
             yield from _scoped_nodes(child)
 
 
-def inject_gateway(filename: str, content: str) -> str:
+def inject_gateway(filename: str, content: str, *, progress_external: bool = False) -> str:
     """Generate and compile one clean split gateway file; reject missing/ambiguous anchors.
 
     All insertions use existing ``patcher.MARKERS`` (repeated pairs are intentional).
@@ -30,7 +31,7 @@ def inject_gateway(filename: str, content: str) -> str:
     # Local import: patcher can delegate here without an import cycle.
     from . import patcher as p
 
-    if filename not in GATEWAY_FILES:
+    if filename not in (*GATEWAY_FILES, PROGRESS_FILE):
         raise p.PatcherError(f"Unsupported split gateway file: {filename}")
     try:
         tree = ast.parse(content, filename=filename)
@@ -94,6 +95,19 @@ def inject_gateway(filename: str, content: str) -> str:
     def ctx_hook(generator: Callable[[str], str]) -> Callable[[str], str]:
         return lambda indent: generator(indent).replace("ctx.event_message_id", identity)
 
+    def inject_progress() -> None:
+        # After live status and native log recording, before the progress-queue gate.
+        node = select("progress_callback", lambda n: isinstance(n, ast.If)
+                      and ast.unparse(n.test) == "not ctx.progress_queue or not ctx._run_still_current()")[0]
+        insert(node, guarded("TOOL", f"""
+            from hermes_lark_cards.patch import on_tool_updated
+            if ctx._run_still_current() and event_type in ('tool.started', 'tool.completed'):
+                if on_tool_updated(message_id={identity}, tool_name=tool_name or '',
+                                   status='started' if event_type == 'tool.started' else 'completed',
+                                   detail=preview or ''):
+                    return
+        """))
+
     if filename == "run_inbound.py":
         for node in statement("_hm_admit_event", "source = event.source", 2):
             insert(node, p._feishu_normalize_hook, after=True)
@@ -114,21 +128,20 @@ def inject_gateway(filename: str, content: str) -> str:
         node = select("_busy_stop_command", lambda n: isinstance(n, ast.Return))[0]
         insert(node, p._stop_hook)
 
+    elif filename == PROGRESS_FILE:
+        inject_progress()
+
     elif filename == "run_turn_runner.py":
-        # After live status and native log recording, before the progress-queue gate.
-        node = select("progress_callback", lambda n: isinstance(n, ast.If)
-                      and ast.unparse(n.test) == "not ctx.progress_queue or not ctx._run_still_current()")[0]
-        insert(node, guarded("TOOL", f"""
-            from hermes_lark_cards.patch import on_tool_updated
-            if ctx._run_still_current() and event_type in ('tool.started', 'tool.completed'):
-                if on_tool_updated(message_id={identity}, tool_name=tool_name or '',
-                                   status='started' if event_type == 'tool.started' else 'completed',
-                                   detail=preview or ''):
-                    return
-        """))
+        if not progress_external:
+            inject_progress()
+        elif any(isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                 and n.name == "progress_callback" for n in ast.walk(tree)):
+            raise p.PatcherError(f"{filename}: both inline and extracted progress callbacks present")
         setup = "_setup_stream_consumer"
         # Keep native setup intact for disabled/unregistered turns and other platforms.
-        select(setup, lambda n: isinstance(n, ast.If) and ast.unparse(n.test) == "delta_sinks")
+        select(setup, lambda n: isinstance(n, ast.If) and ast.unparse(n.test) in {
+            "delta_sinks", "delta_sinks or self._approval_owner is not None",
+        })
         stream = scope("stream_delta_cb", scope(setup))
         if not any(isinstance(n, ast.Expr) and ast.unparse(n) == "sink.on_delta(text)"
                    for n in _scoped_nodes(stream)):
@@ -197,7 +210,8 @@ def inject_gateway(filename: str, content: str) -> str:
         """), after=True)
         node = select(handler, lambda n: isinstance(n, ast.Return) and isinstance(n.value, ast.Await)
                       and isinstance(n.value.value, ast.Call)
-                      and ast.unparse(n.value.value.func) == "self._hmwa_deliver_turn_response")[0]
+                      and ast.unparse(n.value.value.func) in {"self._hmwa_deliver_turn_response",
+                                                            "self._deliver_turn_response_then_limit_offer"})[0]
         # Complete after transcript persistence and response rewrites (including context-reset
         # notices), but before the native delivery decision. Strip only the footer we observed
         # upstream append; CardKit renders its own footer from the structured usage fields.

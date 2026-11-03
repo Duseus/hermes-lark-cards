@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.1] - 2026-11-03
+
+### 🎨 Footer 一言排版优化
+
+- **一言改为斜体、去掉直角引号**：底栏 `hitokoto` 字段不再渲染 `「…」`，改用 Markdown 斜体，
+  有出处时输出 `*正文* —— 出处`，无出处时输出 `*正文*`；接口不可用时的本地兜底句子同样为斜体无引号。
+- **Studio 模拟器同步**：1:1 预览中的一言示例改用斜体渲染，与真机卡片保持一致。
+- **测试覆盖**：新增 footer 一言斜体且不含引号的断言。
+
+### 🧩 模型品牌图标补全
+
+- 新增 **Devin / SWE-2 / Cognition** 品牌图标（官方三链环 logo，PNG + SVG 双份）。
+- `resolve_model_icon` 与自定义资产映射补充 `swe`、`devin`、`cognition` 关键词，
+  未命中自定义素材时回退到 `ai-agent_outlined`（purple）标准图标。
+- Studio 模型下拉新增 `SWE-2 Max / Devin` 选项。
+
+### 🔧 其他
+
+- 静态资源版本号统一为 `v0.3.1`，避免浏览器命中旧缓存。
+
+---
+
 ## [0.3.0] - 2026-10-27
 
 ### ✨ 可视化卡片配置工作坊 (Visual Card Studio)

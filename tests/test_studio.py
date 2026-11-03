@@ -142,7 +142,7 @@ def test_studio_http_server_endpoints(tmp_path, monkeypatch):
             assert res.status == 200
             data = json.loads(res.read().decode("utf-8"))
             assert data["ok"] is True
-            assert data["version"] == "0.3.0"
+            assert data["version"] == "0.3.1"
 
         # 3. Test GET /api/presets
         with urllib.request.urlopen(f"{base_url}/api/presets") as res:

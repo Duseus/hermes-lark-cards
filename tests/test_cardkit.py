@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from unittest import mock
+
 import pytest
 
 from hermes_lark_cards.cardkit.builder import (
@@ -247,6 +250,19 @@ class TestBuildFooterElements:
         assert result[1]["content"] == "*保持好奇，持续折腾。*"
         assert "「" not in result[1]["content"]
         assert "」" not in result[1]["content"]
+
+    def test_hitokoto_source_is_italic_too(self) -> None:
+        from hermes_lark_cards.metrics import fetch_hitokoto
+
+        payload = {"hitokoto": "方生方死，方死方生。", "from": "齐物论"}
+        with mock.patch("urllib.request.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = json.dumps(
+                payload, ensure_ascii=False
+            ).encode("utf-8")
+            text = fetch_hitokoto()
+
+        assert text == "*方生方死，方死方生。* —— *齐物论*"
+        assert "「" not in text and "」" not in text
 
 
 # --- 推理面板 ---

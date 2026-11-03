@@ -151,7 +151,7 @@ def fetch_hitokoto() -> str:
         text = (data.get("hitokoto") or "").strip()
         source = (data.get("from") or data.get("from_who") or "").strip()
         if text:
-            return f"*{text}* —— {source}" if source else f"*{text}*"
+            return f"*{text}* —— *{source}*" if source else f"*{text}*"
     except Exception:
         pass
     return f"*{random.choice(HITOKOTO_FALLBACK)}*"

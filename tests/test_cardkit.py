@@ -239,6 +239,15 @@ class TestBuildFooterElements:
     def test_no_matching_fields(self) -> None:
         assert _build_footer_elements({}, fields=[["tokens"]]) == []
 
+    def test_hitokoto_footer_italic_no_brackets(self) -> None:
+        result = _build_footer_elements(
+            {"hitokoto": "*保持好奇，持续折腾。*"},
+            fields=[["hitokoto"]],
+        )
+        assert result[1]["content"] == "*保持好奇，持续折腾。*"
+        assert "「" not in result[1]["content"]
+        assert "」" not in result[1]["content"]
+
 
 # --- 推理面板 ---
 

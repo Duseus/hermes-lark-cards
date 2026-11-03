@@ -103,7 +103,7 @@ const CardSimulator = {
           if (field === "tokens") return "↑ 1.2K ↓ 480";
           if (field === "context") return "15.2K/128K (11%)";
           if (field === "weather") return "☀️ 临平 21.5°C/14.0°C · 湿度 68%";
-          if (field === "hitokoto") return "💬 「保持好奇，持续折腾。」";
+          if (field === "hitokoto") return "💬 <i>保持好奇，持续折腾。</i>";
           return field;
         });
         return `<div class="footer-line">${parts.map(p => `<span>${p}</span>`).join(" · ")}</div>`;

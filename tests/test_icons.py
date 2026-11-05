@@ -66,3 +66,19 @@ async def test_resolve_model_img_key_upload_and_cache(tmp_path: Path, monkeypatc
 
     # 4. 未知模型返回 None
     assert await resolve_model_img_key("unknown-custom-model", client) is None
+
+
+def test_icon_asset_copies_stay_in_sync() -> None:
+    """包内两份图标必须与仓库根 assets/icons 保持一致（防止漏拷）."""
+    root = Path(__file__).resolve().parent.parent
+    copies = [
+        root / "assets" / "icons",
+        root / "hermes_lark_cards" / "assets" / "icons",
+        root / "hermes_lark_cards" / "studio" / "web" / "assets" / "icons",
+    ]
+    names = {p.name for p in copies[0].iterdir() if p.is_file()}
+    for copy in copies[1:]:
+        assert {p.name for p in copy.iterdir() if p.is_file()} == names, copy
+    for name in names:
+        blobs = {(d / name).read_bytes() for d in copies}
+        assert len(blobs) == 1, name

@@ -42,7 +42,10 @@ class StreamCardController(StreamingController):
         self._loop: asyncio.AbstractEventLoop | None = None
         self._text_fallback_needed: set[str] = set()
         self._text_fallback_aliases: dict[str, set[str]] = {}
+        self._text_fallback_at: dict[str, float] = {}
         self._unscoped_enabled: bool | None = None
+        self._sweeper_timer: threading.Timer | None = None
+        self._sweeper_lock = threading.Lock()
 
     @property
     def enabled(self) -> bool:
@@ -124,6 +127,26 @@ class StreamCardController(StreamingController):
             return None
         return session
 
+    def _submit_coro(
+        self,
+        coro: Coroutine[Any, Any, Any],
+        loop: asyncio.AbstractEventLoop,
+    ) -> asyncio.Future[Any] | ConcurrentFuture | None:
+        """线程安全地提交协程：同一 loop 线程内用 create_task，否则用 threadsafe."""
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is loop:
+            return self._fire_and_forget(coro, loop)
+        try:
+            fut = asyncio.run_coroutine_threadsafe(coro, loop)
+            fut.add_done_callback(self._on_bg_task_done)
+            return fut
+        except Exception:
+            _logger.debug("submit_coro failed", exc_info=True)
+            return None
+
     def _fire_and_forget(
         self,
         coro: Coroutine[Any, Any, Any],
@@ -176,14 +199,49 @@ class StreamCardController(StreamingController):
         _logger.info("session created: msg=%s chat=%s anchor=%s", message_id[:12], chat_id[:12], (anchor_id or "")[:12])
 
         session.create_task = self._fire_and_forget(self._do_create_card(session), loop)
+        # 只在真实运行中的事件循环上挂看门狗：测试/离线构造的循环没有卡片要收尾。
+        if loop.is_running():
+            self._arm_sweeper()
+        # 天气/一言只读缓存，提前预热，避免完成态构建卡片时同步打网络。
+        if self._needs_footer_metrics():
+            self._fire_and_forget(self._prefetch_footer_metrics(), loop)
+
+    def _needs_footer_metrics(self) -> bool:
+        try:
+            fields = self._cfg.footer_fields
+        except Exception:
+            return False
+        if not self._cfg.footer_enabled:
+            return False
+        return any(
+            isinstance(row, list) and any(f in ("weather", "hitokoto") for f in row)
+            for row in fields
+        )
+
+    async def _prefetch_footer_metrics(self) -> None:
+        try:
+            from .metrics import prefetch_footer_metrics_async
+
+            await asyncio.wait_for(
+                prefetch_footer_metrics_async(
+                    self._cfg.weather_latitude,
+                    self._cfg.weather_longitude,
+                    self._cfg.weather_place,
+                ),
+                timeout=8.0,
+            )
+        except Exception:
+            _logger.debug("footer metrics prefetch failed", exc_info=True)
 
     def _mark_text_fallback_needed(self, session: CardSession) -> None:
         keys = {session.message_id}
         if session.anchor_id:
             keys.add(session.anchor_id)
+        now = time.time()
         self._text_fallback_needed.update(keys)
         for key in keys:
             self._text_fallback_aliases[key] = set(keys)
+            self._text_fallback_at[key] = now
 
     def consume_text_fallback(self, message_id: str) -> bool:
         """Return whether gateway should undo already_sent and deliver plain text."""
@@ -193,6 +251,7 @@ class StreamCardController(StreamingController):
         for key in keys:
             self._text_fallback_needed.discard(key)
             self._text_fallback_aliases.pop(key, None)
+            self._text_fallback_at.pop(key, None)
         return True
 
     def on_thinking(self, *, message_id: str, text: str) -> bool:
@@ -262,26 +321,34 @@ class StreamCardController(StreamingController):
         return True
 
     def _schedule_clarify_split(self, session: CardSession) -> None:
-        """封旧卡 + 建新卡（clarify 工具 ended 后触发）。"""
+        """封旧卡 + 建新卡（clarify 工具 ended 后触发）。
+
+        这里跑在 agent 线程里，不能 ``future.result()`` 阻塞整轮对话：切卡本身是
+        IO 密集的异步流程，交给事件循环后立即返回。``_do_clarify_split`` 内部用
+        ``split_disabled`` 与 ``wait_for_flush`` 保证与并发 flush 串行。
+        """
         loop = self._get_loop()
         if loop is None:
             return
-        future: ConcurrentFuture | None = None
         try:
-            future = asyncio.run_coroutine_threadsafe(
-                self._do_clarify_split(session), loop,
-            )
-            # 预算 = 卡片创建等待 + seal/建卡余量
-            future.result(timeout=_CARD_CREATION_WAIT_SEC * 2 + 30)
+            future = asyncio.run_coroutine_threadsafe(self._do_clarify_split(session), loop)
         except Exception:
             _logger.warning(
-                "clarify_split failed or timed out, msg=%s",
+                "clarify_split schedule failed, msg=%s",
                 session.message_id[:12],
                 exc_info=True,
             )
-            # 取消仍在运行的切卡协程，避免与后续 flush 重叠。
-            if future is not None and not future.done():
-                future.cancel()
+            return
+        future.add_done_callback(self._on_clarify_split_done)
+
+    @staticmethod
+    def _on_clarify_split_done(future: ConcurrentFuture) -> None:
+        try:
+            future.result()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            _logger.warning("clarify_split failed", exc_info=True)
 
     def on_answer(self, *, message_id: str, text: str) -> bool:
         """答案文本增量（流式）."""
@@ -698,10 +765,65 @@ class StreamCardController(StreamingController):
 
     def _prune_stale_sessions(self) -> None:
         now = time.time()
-        stale = [mid for mid, s in self._sessions.items() if mid is not None and now - s.created_at > self._session_ttl]
+        # 快照再遍历：sweeper 在独立线程运行，事件循环可能同时增删 session。
+        stale = [
+            mid for mid, s in list(self._sessions.items())
+            if mid is not None and now - s.created_at > self._session_ttl
+        ]
         for mid in stale:
+            session = self._sessions.get(mid)
+            if session is None:
+                continue
             _logger.warning("pruning stale session: msg=%s", mid[:12])
+            self._seal_stale_session(session)
             self._cleanup(mid)
+        self._prune_text_fallback(now)
+
+    def _seal_stale_session(self, session: CardSession) -> None:
+        """把超时会话收尾成「中断」终态，避免卡片永远停在流式中."""
+        state = getattr(session, "state", None)
+        if state is None or state.is_terminal:
+            return
+        if not getattr(session, "has_card", False):
+            return
+        loop = getattr(session, "_loop", None)
+        if loop is None or loop.is_closed():
+            return
+        session.state = SessionState.ABORTED
+        session.flush.mark_completed()
+        # 看门狗在 Timer 线程里跑，必须用 run_coroutine_threadsafe 唤醒事件循环。
+        self._submit_coro(self._complete_session_wait(session), loop)
+
+    def _prune_text_fallback(self, now: float | None = None) -> None:
+        """兜底标记只对紧接着的 gateway 调用有意义；过期的要回收，否则只增不减."""
+        now = time.time() if now is None else now
+        ttl = max(60.0, float(self._session_ttl) * 2)
+        expired = [k for k, ts in self._text_fallback_at.items() if now - ts > ttl]
+        for key in expired:
+            self._text_fallback_needed.discard(key)
+            self._text_fallback_at.pop(key, None)
+            self._text_fallback_aliases.pop(key, None)
+
+    def _arm_sweeper(self) -> None:
+        """空闲时也要有人收尾：每 ~60s 扫一次超时会话（daemon timer）."""
+        with self._sweeper_lock:
+            if self._sweeper_timer is not None:
+                return
+            interval = max(30.0, min(60.0, float(self._session_ttl) / 4))
+            timer = threading.Timer(interval, self._sweep_tick)
+            timer.daemon = True
+            self._sweeper_timer = timer
+            timer.start()
+
+    def _sweep_tick(self) -> None:
+        with self._sweeper_lock:
+            self._sweeper_timer = None
+        try:
+            self._prune_stale_sessions()
+        except Exception:
+            _logger.debug("sweep failed", exc_info=True)
+        if self._sessions:
+            self._arm_sweeper()
 
     @staticmethod
     def _on_bg_task_done(fut: asyncio.Future[Any] | ConcurrentFuture) -> None:

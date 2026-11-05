@@ -4,14 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Hermes 流式卡片工作坊 (Visual Card Studio)</title>
-  <link rel="stylesheet" href="css/style.css?v=0.3.1">
+  <link rel="stylesheet" href="css/style.css?v=__VERSION__">
 </head>
 <body>
   <!-- Top Navbar -->
   <header class="navbar">
     <div class="brand">
       <span>🎴 Hermes Lark Cards Studio</span>
-      <span class="badge" id="versionBadge">v0.3.1</span>
+      <span class="badge" id="versionBadge">v—</span>
     </div>
     <div class="nav-actions">
       <button class="btn" id="btnRestart">🔄 重启网关</button>
@@ -128,6 +128,33 @@
         </div>
       </div>
 
+      <!-- Lifecycle & Budget -->
+      <div class="config-section">
+        <div class="section-title">
+          <span>⏱️ 生命周期与体积预算 (Lifecycle & Budget)</span>
+        </div>
+        <div class="form-group">
+          <div class="form-row">
+            <div>
+              <div class="form-label">卡片存活时长 (秒)</div>
+              <div class="form-desc">超过该时长仍无收尾的会话会被看门狗清理，范围 1..86400</div>
+            </div>
+            <input type="number" class="form-input form-input-num" id="inputCardTtl"
+                   min="1" max="86400" step="1" placeholder="600" value="600">
+          </div>
+        </div>
+        <div class="form-group">
+          <div class="form-row">
+            <div>
+              <div class="form-label">卡片最大字节数</div>
+              <div class="form-desc">完成态卡片 JSON 体积预算，超出只裁剪回答正文；0 = 不限制</div>
+            </div>
+            <input type="number" class="form-input form-input-num" id="inputMaxCardBytes"
+                   min="0" max="5000000" step="1000" placeholder="30000" value="30000">
+          </div>
+        </div>
+      </div>
+
       <!-- Footer -->
       <div class="config-section">
         <div class="section-title">
@@ -234,7 +261,7 @@
     </div>
   </div>
 
-  <script src="js/preview.js?v=0.3.1"></script>
-  <script src="js/app.js?v=0.3.1"></script>
+  <script src="js/preview.js?v=__VERSION__"></script>
+  <script src="js/app.js?v=__VERSION__"></script>
 </body>
 </html>

@@ -23,6 +23,7 @@ class Segment:
         "element_estimate",
         "reasoning_finalized",
         "start_time",
+        "streamed_source",
         "text",
         "text_el_id",
         "tool_end_offset",
@@ -37,6 +38,8 @@ class Segment:
         self.dirty = True
         self.element_estimate: int = 0
         self.text: str = ""
+        # 最近一次成功推送到飞书的源文本；None 表示从未推送过。
+        self.streamed_source: str | None = None
         self.text_el_id: str = ""
         self.tool_offset: int = 0
         self.tool_end_offset: int = 0  # 0 = 未终结；>= 1 表示已终结

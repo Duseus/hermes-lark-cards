@@ -14,6 +14,7 @@ from .markdown import (
     _downgrade_tables,
     _split_long_text,
     optimize_markdown_style,
+    truncate_markdown,
 )
 
 STREAMING_ELEMENT_ID = "streaming_content"
@@ -86,12 +87,12 @@ _HEADER_STATES: dict[str, dict[str, str]] = {
     "streaming": {"template": "blue", "i18n_key": "processing_prefix"},
     "completed": {"template": "green", "i18n_key": "status_completed"},
     "error": {"template": "red", "i18n_key": "status_error"},
-    "stopped": {"template": "red", "i18n_key": "status_stopped"},
+    "stopped": {"template": "yellow", "i18n_key": "status_stopped"},
 }
 
 
 def _build_header(status: str, title: str | None = None) -> dict[str, Any]:
-    """构建卡片级 header — 流式蓝 / 完成绿 / 停止红."""
+    """构建卡片级 header — 流式蓝 / 完成绿 / 中断黄 / 出错红."""
     cfg = _HEADER_STATES.get(status, _HEADER_STATES["completed"])
     if title:
         title_dict = {
@@ -425,20 +426,21 @@ def _render_footer_field(
         v = data.get("weather")
         if not v:
             try:
-                from ..metrics import fetch_weather
-                v = fetch_weather()
+                # 只读缓存：构建卡片处于 async 热路径，不能同步发网络请求。
+                from ..metrics import cached_weather_text
+                v = cached_weather_text()
             except Exception:
-                pass
+                v = ""
         return (v, v) if v else (None, None)
 
     if name == "hitokoto":
         v = data.get("hitokoto")
         if not v:
             try:
-                from ..metrics import fetch_hitokoto
-                v = fetch_hitokoto()
+                from ..metrics import cached_hitokoto_text
+                v = cached_hitokoto_text()
             except Exception:
-                pass
+                v = ""
         return (v, v) if v else (None, None)
 
     return None, None
@@ -508,9 +510,15 @@ def build_complete_card(
     show_tool_use: bool = True,
     width_mode: str = "default",
     icon_img_key: str | None = None,
+    max_bytes: int = 0,
 ) -> dict[str, Any]:
-    """完成态流式卡片 — 按 segments 顺序渲染."""
+    """完成态流式卡片 — 按 segments 顺序渲染.
+
+    ``max_bytes`` > 0 时按真实 JSON 体积做预算：超限时从尾部依次压缩
+    answer 文本（保持围栏闭合），最终仍超限则丢弃最早的 answer 段。
+    """
     elements: list[dict] = []
+    answer_elements: list[dict] = []
     has_answer = False
 
     # 计算面板边框与模型图标属性（完成=绿，中断=黄，错误=红）
@@ -549,10 +557,25 @@ def build_complete_card(
             has_answer = True
             content = _downgrade_tables(optimize_markdown_style(seg.text))
             for chunk in _split_long_text(content):
-                elements.append({"tag": "markdown", "content": chunk, "text_size": body_text_size})
+                chunk_el = {"tag": "markdown", "content": chunk, "text_size": body_text_size}
+                elements.append(chunk_el)
+                answer_elements.append(chunk_el)
 
     if not has_answer:
-        elements.append({"tag": "markdown", "content": _T["done"][0], "text_size": body_text_size})
+        # 失败/中断时不能显示 "Done."，否则语义与状态栏相反。
+        if is_error:
+            fallback_key = "status_error"
+        elif is_aborted:
+            fallback_key = "status_stopped"
+        else:
+            fallback_key = "done"
+        en_text, zh_text = _T[fallback_key]
+        elements.append({
+            "tag": "markdown",
+            "content": en_text,
+            "i18n_content": _i18n(en_text, zh_text),
+            "text_size": body_text_size,
+        })
 
     if footer_enabled:
         elements.extend(
@@ -588,7 +611,87 @@ def build_complete_card(
     if header_enabled:
         header_status = "error" if is_error else "stopped" if is_aborted else "completed"
         card["header"] = _build_header(header_status, title=header_title)
+    if max_bytes > 0 and answer_elements:
+        _enforce_byte_budget(card, answer_elements, max_bytes, body_text_size)
     return card
+
+
+_MIN_KEEP_CHARS = 48
+
+_OMITTED_NOTICE = {
+    "zh_cn": "\n\n_（内容过长，后续段落已省略）_",
+    "en_us": "\n\n_(truncated: content too large for one card)_",
+}
+
+
+def _card_size(card: dict[str, Any]) -> int:
+    import json
+
+    return len(json.dumps(card, ensure_ascii=False).encode("utf-8"))
+
+
+def _enforce_byte_budget(
+    card: dict[str, Any],
+    answer_elements: list[dict],
+    max_bytes: int,
+    body_text_size: str,
+) -> None:
+    """按真实序列化体积裁剪 answer 元素，直到落入预算。
+
+    只动 answer 段：footer / 工具面板 / 思考面板保持不变。
+    """
+    elements = card.get("body", {}).get("elements", [])
+    size = _card_size(card)
+    if size <= max_bytes:
+        return
+
+    notice_zh = _OMITTED_NOTICE["zh_cn"]
+    notice_en = _OMITTED_NOTICE["en_us"]
+
+    # 1) 从最后一段开始逐步压缩，保留开头结论
+    while size > max_bytes and answer_elements:
+        el = answer_elements[-1]
+        content = str(el.get("content") or "")
+        if len(content) <= _MIN_KEEP_CHARS:
+            if el in elements:
+                elements.remove(el)
+            answer_elements.pop()
+            size = _card_size(card)
+            continue
+        overflow = size - max_bytes
+        # 中文约 3 字节/字；留一点余量，多轮收敛
+        drop = max(64, int(overflow / 3) + 32)
+        keep = max(len(content) - drop, _MIN_KEEP_CHARS // 2)
+        truncated, _ = truncate_markdown(content, keep)
+        el["content"] = truncated + notice_zh
+        el["i18n_content"] = {
+            "zh_cn": truncated + notice_zh,
+            "en_us": truncated + notice_en,
+        }
+        size = _card_size(card)
+        if len(truncated) <= _MIN_KEEP_CHARS // 2:
+            # 已压到下限仍超限：丢弃该段，继续处理前一段
+            if el in elements:
+                elements.remove(el)
+            answer_elements.pop()
+            size = _card_size(card)
+
+    if size <= max_bytes:
+        return
+
+    # 2) 仍超限（极端情况：footer 本身就很大）：整体降级为一条提示
+    for el in answer_elements:
+        if el in elements:
+            elements.remove(el)
+    hint = notice_zh.strip()
+    hint_el = {
+        "tag": "markdown",
+        "content": hint,
+        "i18n_content": _i18n(hint, notice_en.strip()),
+        "text_size": body_text_size,
+    }
+    first_non_answer = 0
+    elements.insert(first_non_answer, hint_el)
 
 
 def _format_run_time(run_time: str) -> str:

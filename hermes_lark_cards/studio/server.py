@@ -16,17 +16,17 @@ import http.server
 import json
 import logging
 import os
-import re
 import socketserver
 import subprocess
 import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from .. import __version__ as _VERSION
-from ..config import Config, _config_path, hermes_home
+from ..config import Config, _config_path
 
 _logger = logging.getLogger("hermes_lark_cards.studio")
 
@@ -107,6 +107,7 @@ UI_MANAGED_KEYS = (
     "width_mode",
     "panel_expanded",
     "card_ttl_sec",
+    "max_card_bytes",
     "header",
     "body",
     "footer",
@@ -142,6 +143,24 @@ def _validate_ui_payload(payload: dict[str, Any]) -> tuple[bool, str]:
 
     if "width_mode" in payload and payload["width_mode"] not in _SUPPORTED_WIDTH_MODES:
         return False, f"不支持的 width_mode: {payload['width_mode']}"
+
+    for flag in ("enabled", "panel_expanded"):
+        if flag in payload and not isinstance(payload[flag], bool):
+            return False, f"{flag} 必须是布尔值"
+
+    if "card_ttl_sec" in payload:
+        ttl = payload["card_ttl_sec"]
+        if isinstance(ttl, bool) or not isinstance(ttl, int):
+            return False, "card_ttl_sec 必须是整数"
+        if not 1 <= ttl <= 86_400:
+            return False, "card_ttl_sec 必须在 1..86400 之间"
+
+    if "max_card_bytes" in payload:
+        budget = payload["max_card_bytes"]
+        if isinstance(budget, bool) or not isinstance(budget, int):
+            return False, "max_card_bytes 必须是整数"
+        if not 0 <= budget <= 5_000_000:
+            return False, "max_card_bytes 必须在 0..5000000 之间"
 
     if "header" in payload:
         header = payload["header"]
@@ -191,6 +210,14 @@ def write_streaming_config(ui_cfg: dict[str, Any]) -> tuple[bool, str]:
 
     cfg_file.parent.mkdir(parents=True, exist_ok=True)
 
+    # 记录原文件权限：替换文件后要还原，否则 600 会变成 644（配置里有 app_secret）
+    original_mode: int | None = None
+    if cfg_file.exists():
+        try:
+            original_mode = cfg_file.stat().st_mode & 0o7777
+        except OSError:
+            original_mode = None
+
     # 备份现有配置
     if cfg_file.exists():
         backup_dir = cfg_file.parent / "backups" / "studio_config_baks"
@@ -199,6 +226,7 @@ def write_streaming_config(ui_cfg: dict[str, Any]) -> tuple[bool, str]:
             ts = time.strftime("%Y%m%d_%H%M%S")
             backup_path = backup_dir / f"config.yaml.bak_{ts}"
             backup_path.write_text(cfg_file.read_text(encoding="utf-8"), encoding="utf-8")
+            os.chmod(backup_path, 0o600)
         except OSError as e:
             _logger.warning("Failed to create studio backup: %s", e)
 
@@ -223,6 +251,8 @@ def write_streaming_config(ui_cfg: dict[str, Any]) -> tuple[bool, str]:
         dumped = yaml.safe_dump(full_cfg, sort_keys=False, allow_unicode=True)
         tmp_path = cfg_file.with_suffix(".tmp")
         tmp_path.write_text(dumped, encoding="utf-8")
+        if original_mode is not None:
+            os.chmod(tmp_path, original_mode)
         tmp_path.replace(cfg_file)
     except OSError as e:
         return False, f"写入配置文件失败: {e}"
@@ -272,34 +302,103 @@ class StudioRequestHandler(http.server.SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(web_dir), **kwargs)
 
     def do_GET(self) -> None:
-        if self.path == "/api/health":
+        from urllib.parse import urlsplit
+
+        route = urlsplit(self.path).path
+        if route == "/api/health":
             self._send_json(200, {"ok": True, "version": _VERSION, "status": "running"})
             return
-        if self.path == "/api/presets":
+        if route == "/api/presets":
             self._send_json(200, PRESETS)
             return
-        if self.path == "/api/templates":
+        if route == "/api/templates":
             self._send_json(200, load_custom_templates())
             return
-        if self.path == "/api/config":
+        if route == "/api/config":
             self._handle_get_config()
+            return
+        if route in ("/", "/index.html"):
+            self._send_index_html()
             return
         super().do_GET()
 
+    def _send_index_html(self) -> None:
+        """注入运行时版本号，避免 index.html 手抄 __version__ 漂移."""
+        index = Path(__file__).parent / "web" / "index.html"
+        try:
+            html = index.read_text(encoding="utf-8").replace("__VERSION__", _VERSION)
+        except OSError:
+            self.send_error(500, "index.html missing")
+            return
+        body = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(body)
+
+    # ── CSRF 防护 ──────────────────────────────────────────────
+    # Studio 只服务本机回环地址，但浏览器允许任意站点向 127.0.0.1 发“简单请求”
+    # （text/plain、无预检）。必须校验 Origin / Sec-Fetch-Site，否则恶意页面可
+    # 直接改配置甚至重启 gateway。
+    _ALLOWED_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "[::1]"})
+
+    def _request_origin_ok(self) -> bool:
+        host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]").lower()
+        if host and host not in {h.strip("[]") for h in self._ALLOWED_HOSTS}:
+            return False
+        fetch_site = (self.headers.get("Sec-Fetch-Site") or "").lower()
+        if fetch_site in {"same-origin", "none"}:
+            return True
+        origin = self.headers.get("Origin")
+        if origin is None:
+            # 非浏览器客户端（curl / 测试）没有 Origin；仍需 Host 合法。
+            return True
+        from urllib.parse import urlparse
+
+        parsed = urlparse(origin)
+        origin_host = (parsed.hostname or "").lower()
+        return parsed.scheme in {"http", "https"} and origin_host in {
+            "127.0.0.1", "localhost", "::1"
+        }
+
+    def _reject_cross_site(self) -> bool:
+        if self._request_origin_ok():
+            return False
+        _logger.warning("Studio: rejected cross-site POST %s from %s", self.path, self.headers.get("Origin"))
+        self._send_json(403, {"ok": False, "error": "跨站请求被拒绝"})
+        return True
+
+    def _require_json(self) -> bool:
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype == "application/json":
+            return True
+        self._send_json(415, {"ok": False, "error": "Content-Type 必须是 application/json"})
+        return False
+
     def do_POST(self) -> None:
-        if self.path == "/api/config":
+        from urllib.parse import urlsplit
+
+        if self._reject_cross_site():
+            return
+        route = urlsplit(self.path).path
+        if route in {"/api/config", "/api/templates", "/api/templates/delete"} and not self._require_json():
+            return
+        if route == "/api/config":
             self._handle_post_config()
             return
-        if self.path == "/api/restart":
+        if route == "/api/restart":
             self._handle_restart_gateway()
             return
-        if self.path == "/api/templates":
+        if route == "/api/templates":
             self._handle_save_template()
             return
-        if self.path.startswith("/api/templates/delete"):
+        if route == "/api/templates/delete":
             self._handle_delete_template()
             return
-        self._send_json(404, {"ok": False, "error": f"Unknown endpoint {self.path}"})
+        self._send_json(404, {"ok": False, "error": f"Unknown endpoint {route}"})
 
     def _handle_get_config(self) -> None:
         cfg = Config()
@@ -309,6 +408,7 @@ class StudioRequestHandler(http.server.SimpleHTTPRequestHandler):
             "width_mode": cfg.width_mode,
             "panel_expanded": cfg.panel_expanded,
             "card_ttl_sec": cfg.card_duration_sec,
+            "max_card_bytes": cfg.max_card_bytes,
             "header": {
                 "enabled": cfg.header_enabled,
                 "title": cfg.header_title,
@@ -457,10 +557,9 @@ def run_studio_server(host: str = "127.0.0.1", port: int = 8765, open_browser: b
 
         if open_browser:
             import webbrowser
-            try:
+
+            with suppress(Exception):
                 webbrowser.open(url)
-            except Exception:
-                pass
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:

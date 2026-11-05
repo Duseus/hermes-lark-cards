@@ -55,9 +55,11 @@ class CardSession:
         "element_count",
         "flush",
         "footer",
+        "force_split_on_next_flush",
         "guard",
         "image_resolver",
         "message_id",
+        "rate_limit_strikes",
         "segment_state",
         "sequence",
         "session_key",
@@ -103,6 +105,8 @@ class CardSession:
         self.split_disabled = False
         self.split_index: int = 0
         self.clarify_pending_split: bool = False
+        self.rate_limit_strikes: int = 0
+        self.force_split_on_next_flush: bool = False
 
     @property
     def has_card(self) -> bool:

@@ -9,13 +9,16 @@ _logger = logging.getLogger("hermes_lark_cards")
 
 _MAX_CARD_TABLES = 5
 _MAX_CHUNK_CHARS = 2400
+_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")
 
 __all__ = [
     "_downgrade_tables",
     "_find_tables_outside_code_blocks",
+    "_open_fence_at",
     "_split_long_text",
     "_strip_invalid_image_keys",
     "optimize_markdown_style",
+    "truncate_markdown",
 ]
 
 
@@ -81,10 +84,26 @@ def optimize_markdown_style(text: str) -> str:
 
         r = re.sub(r"(^|\n)(`{3,})([^\n]*)\n[\s\S]*?\n\2(?=\n|$)", _extract, text)
 
-        # 2. 标题降级（仅当存在 H1-H3 时）
+        # 2. 标题降级（仅当存在 H1-H3 时）；跳过仍在围栏内的行，避免把注释改成标题
         if re.search(r"^#{1,3} ", text, re.MULTILINE):
-            r = re.sub(r"^#{2,6} (.+)$", r"##### \1", r, flags=re.MULTILINE)
-            r = re.sub(r"^# (.+)$", r"#### \1", r, flags=re.MULTILINE)
+            lines = r.split("\n")
+            in_fence: str | None = None
+            for i, line in enumerate(lines):
+                fence_match = _FENCE_RE.match(line)
+                if fence_match:
+                    marker = fence_match.group(1)
+                    if in_fence is None:
+                        in_fence = marker
+                    elif marker[0] == in_fence[0] and len(marker) >= len(in_fence):
+                        in_fence = None
+                    continue
+                if in_fence is not None:
+                    continue
+                if re.match(r"^#{2,6} ", line):
+                    lines[i] = "##### " + line.lstrip("#").lstrip(" ")
+                elif re.match(r"^# ", line):
+                    lines[i] = "#### " + line[2:]
+            r = "\n".join(lines)
 
         # 3. 还原代码块
         for i, block in enumerate(code_blocks):
@@ -102,8 +121,46 @@ def optimize_markdown_style(text: str) -> str:
         return text
 
 
+def _open_fence_at(text: str, index: int) -> tuple[str, str] | None:
+    """返回 index 处仍未闭合的围栏 (fence_marker, info_string)。"""
+    open_fence: tuple[str, str] | None = None
+    for line in text[:index].splitlines():
+        m = _FENCE_RE.match(line)
+        if not m:
+            continue
+        marker = m.group(1)
+        if open_fence is None:
+            open_fence = (marker, m.group(2).strip())
+        elif marker[0] == open_fence[0][0] and len(marker) >= len(open_fence[0]):
+            open_fence = None
+    return open_fence
+
+
+def truncate_markdown(text: str, keep_chars: int) -> tuple[str, int]:
+    """截断 markdown 但保持围栏闭合；返回 (文本, 被丢弃的字符数)."""
+    if keep_chars >= len(text):
+        return text, 0
+    keep = max(keep_chars, 0)
+    head = text[:keep]
+    tail = text[keep:]
+    # 尽量在行边界截断，避免切坏行内语法
+    line_cut = head.rfind("\n")
+    if line_cut >= keep * 0.8:
+        head = head[: line_cut + 1]
+        tail = text[len(head):]
+    fence = _open_fence_at(text, len(head))
+    if fence is not None:
+        marker, _info = fence
+        head = head + ("" if head.endswith("\n") else "\n") + marker + "\n"
+    return head, len(tail)
+
+
 def _split_long_text(text: str, limit: int = _MAX_CHUNK_CHARS) -> list[str]:
-    """将超长文本按段落/换行拆分为多个不超过 limit 字符的块."""
+    """将超长文本按段落/换行拆分为多个不超过 limit 字符的块。
+
+    围栏代码块必须保持闭合：切点落在 ``` 内时，本块补上收尾围栏，下一块重开
+    同语言围栏，避免飞书把代码渲染成普通段落。
+    """
     if len(text) <= limit:
         return [text]
     chunks: list[str] = []
@@ -116,6 +173,14 @@ def _split_long_text(text: str, limit: int = _MAX_CHUNK_CHARS) -> list[str]:
             cut = text.rfind("\n", 0, limit)
         if cut < limit // 2:
             cut = limit
-        chunks.append(text[:cut])
-        text = text[cut:].lstrip("\n")
+        head = text[:cut]
+        tail = text[cut:].lstrip("\n")
+        fence = _open_fence_at(text, cut)
+        if fence is not None:
+            marker, info = fence
+            closing = f"\n{marker}\n" if not head.endswith("\n") else f"{marker}\n"
+            head = head + closing
+            tail = f"{marker}{info}\n" + tail
+        chunks.append(head)
+        text = tail
     return chunks

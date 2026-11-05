@@ -206,3 +206,14 @@ class TestMultiRound:
         assert state.segments[2].tool_end_offset == 3  # tool1 finalized by tool2
         assert state.segments[4].tool_end_offset == 5  # tool2 finalized by finalize
         assert state.segments[5].elapsed_ms > 0  # r2 finalized by a2
+
+class TestStreamedSourceTracking:
+    def test_streamed_source_defaults_none(self) -> None:
+        seg = Segment("answer", "el_1")
+        assert seg.streamed_source is None
+
+    def test_streamed_source_roundtrip(self) -> None:
+        seg = Segment("answer", "el_1")
+        seg.text = "hello"
+        seg.streamed_source = "hello"
+        assert seg.streamed_source == "hello"

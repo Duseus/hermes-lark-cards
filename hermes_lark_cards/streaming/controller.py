@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any
 
@@ -182,6 +183,24 @@ class StreamingController:
         updated_tool_segs: list[Segment] = []
         new_el_total = 0  # 同一 flush 内新 segment 估计 + dirty segment 增量的累计
 
+        if session.force_split_on_next_flush and len(segments) > session.split_index:
+            split_idx = max(session.split_index, len(segments) - 1)
+            if split_idx > session.split_index:
+                if actions and not await self._do_batch_update(
+                    session, segments, actions, new_el_ids, new_el_estimates, updated_tool_segs,
+                ):
+                    return
+                if not await self._do_split_card(
+                    session, split_idx, [], set(), {}, [],
+                ):
+                    return
+                actions = []
+                new_el_ids = set()
+                new_el_estimates = {}
+                updated_tool_segs = []
+                new_el_total = 0
+            session.force_split_on_next_flush = False
+
         for i, seg in enumerate(segments):
             if i < session.split_index:
                 continue
@@ -296,6 +315,8 @@ class StreamingController:
         ):
             return
 
+        session.rate_limit_strikes = 0
+
         # ── 步骤 2: stream_element 刷脏文本 ──
         for seg in segments[session.split_index:]:
             if not seg.created or not seg.dirty:
@@ -317,6 +338,7 @@ class StreamingController:
                         sequence=session.sequence,
                     )
                     seg.dirty = False
+                    seg.streamed_source = seg.text
                 elif seg.type == SegmentType.ANSWER:
                     content = seg.text
                     if session.image_resolver:
@@ -336,6 +358,7 @@ class StreamingController:
                         sequence=session.sequence,
                     )
                     seg.dirty = False
+                    seg.streamed_source = seg.text
             except Exception as e:
                 _logger.debug("CardKit stream element failed: %s el=%s", e, seg.el_id, exc_info=True)
 
@@ -388,10 +411,16 @@ class StreamingController:
                 if seg.type == SegmentType.REASONING and pre_flush_reasoning_elapsed.get(seg.el_id, 0) > 0:
                     seg.reasoning_finalized = True
             if new_el_ids:
+                # 只补发“已创建但从未推送过文本”的段。此前这里把所有已有文本段
+                # 标脏，导致每新增一段就重推全部历史正文（长回答 O(n²) 流量）。
                 for seg in segments:
                     if seg.el_id in new_el_ids or not seg.created:
                         continue
-                    if seg.type in (SegmentType.REASONING, SegmentType.ANSWER) and seg.text:
+                    if (
+                        seg.type in (SegmentType.REASONING, SegmentType.ANSWER)
+                        and seg.text
+                        and seg.streamed_source is None
+                    ):
                         seg.dirty = True
             current_tool_steps = session.tool_use.build_display_steps()
             for seg in updated_tool_segs:
@@ -441,7 +470,7 @@ class StreamingController:
                             seg.el_id,
                         )
                         break
-            self._handle_flush_error(e)
+            self._handle_flush_error(e, session)
             return False
         return True
 
@@ -682,15 +711,39 @@ class StreamingController:
         finally:
             session.split_disabled = False  # 取消/异常/失败均恢复拆卡能力
 
-    def _handle_flush_error(self, e: FeishuAPIError) -> None:
+    _RATE_LIMIT_BASE_BACKOFF_SEC = 1.0
+    _RATE_LIMIT_MAX_BACKOFF_SEC = 30.0
+
+    def _handle_flush_error(self, e: FeishuAPIError, session: CardSession | None = None) -> None:
         if e.code == CARDKIT_RATE_LIMITED:
+            # 指数退避 + jitter：否则下一个 delta 立刻再撞限流
+            if session is not None:
+                session.rate_limit_strikes += 1
+                base = self._RATE_LIMIT_BASE_BACKOFF_SEC * (2 ** min(session.rate_limit_strikes - 1, 5))
+                delay = min(base, self._RATE_LIMIT_MAX_BACKOFF_SEC) * (0.75 + random.random() * 0.5)
+                session.flush.apply_backoff(delay)
+                _logger.warning(
+                    "CardKit rate limited: msg=%s strikes=%d backoff=%.2fs",
+                    session.message_id[:12],
+                    session.rate_limit_strikes,
+                    delay,
+                )
             return
         if e.code == CARDKIT_STREAMING_CLOSED:
             return
         if e.code == CARDKIT_CONTENT_FAILED:
             sub_code = e.extract_sub_code()
             if sub_code == CARDKIT_ELEMENT_LIMIT:
-                _logger.warning("CardKit card element limit exceeded")
+                # 元素超限：立刻降级为强制拆卡，而不是等到收尾时全量重建
+                _logger.warning(
+                    "CardKit card element limit exceeded: msg=%s elements=%d split_index=%d",
+                    session.message_id[:12] if session else "-",
+                    session.element_count if session else -1,
+                    session.split_index if session else -1,
+                )
+                if session is not None:
+                    session.split_disabled = False
+                    session.force_split_on_next_flush = True
 
     async def _do_complete_card(self, session: CardSession) -> bool:
         """完成流式卡片：close streaming + 全量重建卡片（保持 segments 顺序）."""
@@ -743,6 +796,7 @@ class StreamingController:
             show_tool_use=self._cfg.show_tool_use,
             width_mode=self._cfg.width_mode,
             icon_img_key=custom_icon_img_key,
+            max_bytes=self._cfg.max_card_bytes,
         )
 
         streaming_closed = False

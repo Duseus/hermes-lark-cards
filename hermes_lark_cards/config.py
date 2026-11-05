@@ -3,10 +3,21 @@
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+try:  # libyaml 加速：13KB 配置解析从 ~60ms 降到 ~8ms
+    from yaml import CSafeLoader as _YamlLoader
+except ImportError:  # pragma: no cover - 取决于 PyYAML 构建方式
+    _YamlLoader = yaml.SafeLoader
+
+# 解析结果缓存：key = 绝对路径，value = ((mtime_ns, size), data)
+_PARSE_CACHE: dict[str, tuple[tuple[int, int], dict[str, Any]]] = {}
+_PARSE_CACHE_LOCK = threading.Lock()
+_PARSE_CACHE_MAX = 16
 
 DEFAULT_DOMAIN = "https://open.feishu.cn"  # SDK 根域名，Larksuite 用 https://open.larksuite.com
 LARK_DOMAIN = "https://open.larksuite.com"
@@ -32,6 +43,42 @@ def _get_secret(name: str) -> str:
 def _config_path(home: Path | None = None) -> Path:
     """Hermes 主配置路径，支持绑定到指定 profile home."""
     return (home or hermes_home()) / "config.yaml"
+
+
+def _yaml_load(text: str) -> dict[str, Any]:
+    data = yaml.load(text, Loader=_YamlLoader) or {}
+    return data if isinstance(data, dict) else {}
+
+
+def load_config_file(path: Path) -> dict[str, Any]:
+    """读取并解析 YAML，带 mtime+size 失效缓存。
+
+    运行时配置（如 ``/reasoning``）会改写文件，所以不能永久缓存；但每个 delta
+    都重新解析整份配置会把流式回调压垮。这里只在文件真正变化时重新解析。
+    """
+    try:
+        stat = path.stat()
+        stamp = (stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        return {}
+    key = str(path)
+    with _PARSE_CACHE_LOCK:
+        cached = _PARSE_CACHE.get(key)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    try:
+        data = _yaml_load(text)
+    except yaml.YAMLError:
+        return {}
+    with _PARSE_CACHE_LOCK:
+        if len(_PARSE_CACHE) >= _PARSE_CACHE_MAX:
+            _PARSE_CACHE.clear()
+        _PARSE_CACHE[key] = (stamp, data)
+    return data
 
 
 class Config:
@@ -100,8 +147,49 @@ class Config:
 
     @property
     def card_duration_sec(self) -> int:
-        """卡片存活检测超时."""
-        return int(self._streaming_sec().get("card_ttl_sec", 600))
+        """卡片存活检测超时（坏值回退默认值，避免构造控制器时抛异常）."""
+        raw = self._streaming_sec().get("card_ttl_sec", 600)
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return 600
+        return value if value > 0 else 600
+
+    @property
+    def max_card_bytes(self) -> int:
+        """单张完成态卡片的 JSON 字节预算；0 表示不限制."""
+        raw = self._streaming_sec().get("max_card_bytes", 30000)
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return 30000
+        return value if value > 0 else 0
+
+    @property
+    def weather_place(self) -> str:
+        return str(self._weather_sec().get("place", "临平") or "临平")
+
+    @property
+    def weather_latitude(self) -> float:
+        return self._weather_float("latitude", 30.42)
+
+    @property
+    def weather_longitude(self) -> float:
+        return self._weather_float("longitude", 120.30)
+
+    def _weather_float(self, key: str, default: float) -> float:
+        try:
+            return float(self._weather_sec().get(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    def _weather_sec(self) -> dict[str, Any]:
+        """weather 配置：优先 streaming.weather，兼容顶层 weather."""
+        sec = self._streaming_sec().get("weather")
+        if isinstance(sec, dict):
+            return sec
+        top = self._load().get("weather")
+        return top if isinstance(top, dict) else {}
 
     @property
     def header_enabled(self) -> bool:
@@ -241,18 +329,9 @@ class Config:
     def _load(self) -> dict[str, Any]:
         if self._raw is not None:
             return self._raw
-        path = _config_path(self._home)
-        if path.exists():
-            text = path.read_text(encoding="utf-8")
-            self._raw = yaml.safe_load(text) or {}
-        else:
-            self._raw = {}
+        self._raw = load_config_file(_config_path(self._home))
         return self._raw
 
     def _reload(self) -> dict[str, Any]:
-        """从磁盘重新读取配置（不更新缓存），供运行时可变的配置项使用."""
-        path = _config_path(self._home)
-        if path.exists():
-            text = path.read_text(encoding="utf-8")
-            return yaml.safe_load(text) or {}
-        return {}
+        """读取最新配置（带 mtime 缓存），供运行时可变的配置项使用."""
+        return load_config_file(_config_path(self._home))

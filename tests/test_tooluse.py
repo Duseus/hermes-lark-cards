@@ -335,3 +335,37 @@ class TestToolUseTracker:
         tracker.record_end("read", output="ok")
         steps = tracker.build_display_steps()
         assert steps[0]["elapsed_ms"] == pytest.approx(2500.0)
+
+class TestRedactStructuredSecrets:
+    def test_json_key_value(self) -> None:
+        payload = '{"api_key": "abcdef123456", "model": "gpt-4o"}'
+        out = redact_inline_secrets(payload)
+        assert "abcdef123456" not in out
+        assert "[redacted]" in out
+        assert "gpt-4o" in out
+
+    @pytest.mark.parametrize(
+        "secret",
+        [
+            "sk-abcdefghijklmnopqrstuvwx",
+            "sk-ant-abcdefghijklmnopqrst",
+            "ghp_abcdefghijklmnopqrstuvwx",
+            "xoxb-1234567890-abcdef",
+            "AKIAABCDEFGHIJKLMNOP",
+            "AIzaSyA1234567890abcdefghijklmnopqrstu",
+        ],
+    )
+    def test_token_prefixes(self, secret: str) -> None:
+        out = redact_inline_secrets(f"using {secret} now")
+        assert secret not in out
+        assert "[redacted]" in out
+
+    def test_unknown_tool_detail_is_redacted(self) -> None:
+        # 无 sanitizer 的 MCP 工具也必须脱敏，不能原样直通。
+        out = _sanitize_detail("Authorization: Bearer abcdef123456", None)
+        assert "abcdef123456" not in out
+
+    def test_display_block_redacts_nested_json(self) -> None:
+        block = _build_display_block({"output": '{"token": "supersecret", "ok": 1}'})
+        text = str(block)
+        assert "supersecret" not in text

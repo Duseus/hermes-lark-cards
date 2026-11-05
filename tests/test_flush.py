@@ -336,3 +336,44 @@ class TestSetThrottle:
         ctrl = _make_async()
         ctrl.set_throttle(500.0)
         assert ctrl.throttle_ms == 500.0
+
+class TestBackoff:
+    @pytest.mark.asyncio
+    async def test_schedule_delays_during_backoff(self) -> None:
+        ctrl = _make_async()
+        ctrl.set_card_message_ready(True)
+        ctrl.apply_backoff(0.2)
+
+        called = asyncio.Event()
+
+        async def do_flush() -> None:
+            called.set()
+
+        started = time.monotonic()
+        ctrl.schedule_update(do_flush)
+        # 立刻执行不应发生
+        await asyncio.sleep(0.05)
+        assert not called.is_set()
+
+        await asyncio.wait_for(called.wait(), timeout=2.0)
+        assert time.monotonic() - started >= 0.15
+        ctrl.mark_completed()
+
+    @pytest.mark.asyncio
+    async def test_backoff_only_extends(self) -> None:
+        ctrl = _make_async()
+        ctrl.apply_backoff(10)
+        first = ctrl._backoff_until
+        ctrl.apply_backoff(1)
+        assert ctrl._backoff_until == first
+        ctrl.apply_backoff(20)
+        assert ctrl._backoff_until > first
+        ctrl.mark_completed()
+
+    @pytest.mark.asyncio
+    async def test_negative_backoff_is_ignored(self) -> None:
+        ctrl = _make_async()
+        before = ctrl._backoff_until
+        ctrl.apply_backoff(-5)
+        assert ctrl._backoff_until == before
+        ctrl.mark_completed()

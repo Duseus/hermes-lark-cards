@@ -104,7 +104,34 @@ def _cmd_install() -> int:
         print(f"Patch failed: {e}")
         return 1
     print("Hooks installed. Restart Hermes Gateway to load the changes.")
+    _print_config_hint()
     return 0
+
+def _print_config_hint() -> None:
+    """安装后检查配置；未显式开启时打印可直接粘贴的 YAML 片段."""
+    from .config import _config_path, load_config_file
+
+    path = _config_path()
+    raw = load_config_file(path)
+    streaming = raw.get("streaming") if isinstance(raw, dict) else None
+    if isinstance(streaming, dict) and streaming.get("enabled") is True:
+        return
+
+    if not isinstance(raw, dict) or not raw:
+        print()
+        print(f"warning: {path} not found or empty; the card plugin stays off until configured")
+
+    print()
+    print("Config hint: `streaming.enabled` is not true, so cards will not appear.")
+    print(f"Add this to {path} (top-level keys, no wrapper):")
+    print()
+    print("streaming:")
+    print("  enabled: true")
+    print("  width_mode: fill")
+    print("display:")
+    print("  platforms:")
+    print("    feishu:")
+    print("      show_tool_use: true")
 
 
 def _cmd_uninstall() -> int:

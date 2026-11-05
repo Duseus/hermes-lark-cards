@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### 🛡️ 稳定性与安全
+
+- **配置解析缓存**：按 `mtime + size` 缓存 YAML 解析结果，热路径不再反复解析整份配置；
+  改用 `CSafeLoader`（13KB 配置约 60ms → 8ms）。
+- **卡片体积预算**：新增 `streaming.max_card_bytes`（默认 30000，`0` 为不限）。超限时只从尾部
+  压缩回答正文并追加中英文省略提示，底栏 / 工具面板 / 思考面板保持不变。
+- **超时会话收尾**：看门狗改为 ~60s 定时清扫，清理前先把卡片封成「中断」终态，
+  不再出现永远转圈的僵尸卡片；文本兜底标记也加了 TTL 回收。
+- **clarify 切卡非阻塞**：`clarify` 结束触发的封旧卡/建新卡改为 fire-and-forget，
+  不再在 agent 线程里最多阻塞 50s。
+- **频控与元素超限**：230020 改为指数退避 + jitter（1s → 30s）；11310 立即强制拆卡。
+- **流式重推优化**：只补发 `streamed_source is None` 的段，去掉每次新增段都全量标脏的 O(n²) 行为。
+- **密钥脱敏**：工具面板新增 JSON `"key": "value"`、`sk-` / `ghp_` / `xoxb-` / `AKIA` / `AIza`
+  等前缀识别；无 sanitizer 的 MCP 工具结果不再直通；嵌套 JSON 也递归脱敏。
+- **图片下载防 SSRF**：只允许 http/https 公网地址（拒绝私网、回环、链路本地、保留段），
+  校验 `Content-Type` 并把单图限制在 10MB。
+- **Studio CSRF 防护**：校验 `Host` / `Sec-Fetch-Site` / `Origin`，写接口强制
+  `Content-Type: application/json`；保存配置时保留原文件权限（`.bak` 固定 600）。
+- **Studio 参数校验**：`enabled` / `panel_expanded` 必须布尔，`card_ttl_sec` 1..86400，
+  `max_card_bytes` 0..5000000。
+
+### 🎨 渲染一致性
+
+- 中断态 header 由红色改为黄色，与文档和面板边框一致；无回答时的兜底文案按状态区分
+  `❌ Error` / `🛑 Stopped` / `Done.`。
+- Markdown 切分与截断保持代码围栏闭合；`# 注释` 不再被误判为标题降级。
+- 底栏天气 / 一言改为只读缓存，会话开始时后台预热，构建完成态卡片不再同步发网络请求。
+- Studio 预览对齐真机（模型名无 `⚕`、`耗时 1.2s`、一言斜体无 `💬`），新增
+  `card_ttl_sec` / `max_card_bytes` 控件，版本号改由 `/api/health` 注入。
+
+### 🧪 工程
+
+- 修复裸跑 `pytest` 的 `ModuleNotFoundError`（`pythonpath = ["."]`）。
+- 版本号单一来源：`pyproject.toml` 改为 `dynamic = ["version"]`，读取 `hermes_lark_cards.__version__`。
+- 新增 GitHub Actions CI（Python 3.11/3.12/3.13，`ruff check` + `pytest`）。
+- `install` 后若 `streaming.enabled` 未开启，打印可直接粘贴的配置片段。
+- 补齐测试：围栏闭合、字节预算、配置缓存、CSRF/权限、密钥脱敏、SSRF 白名单、
+  超时封卡、频控退避等。
+
+---
+
 ## [0.3.1] - 2026-11-03
 
 ### 🎨 Footer 一言排版优化
@@ -43,25 +86,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Footer 指标芯片交互排布，支持状态、耗时、模型、Token、上下文、天气与一言自由组合。
 - **内置三大主题预设**：
   - 经典科技 (Classic Tech)、泡波轻灵 (Bubble Wave)、极简极速 (Minimalist)。
-
----
-
-## [0.3.0] - 2026-10-27
-
-### ✨ 可视化卡片配置工作坊 (Visual Card Studio)
-
-- **原生零依赖 Visual Card Studio (`hermes-lark-cards studio`)**：
-  - 基于 Python 标准库打造本地可视化配置服务，支持一键浏览器启动。
-  - 安全白名单写入与自动备份保护机制，杜绝配置污染与凭证丢失。
-- **1:1 飞书 CardKit 2.0 原生卡片模拟器**：
-  - 实时响应表单调整，支持流式打字态与完成态卡片双模态切换。
-- **Header 与 Footer 交互式配置**：
-  - 支持大标题切换、卡片宽度模式（default / compact / fill）与正文字号调节。
-  - Footer 指标芯片交互排布，支持状态、耗时、模型、Token、上下文、天气与一言自由组合。
-- **内置三大主题预设**：
-  - 经典科技 (Classic Tech)、泡波轻灵 (Bubble Wave)、极简极速 (Minimalist)。
-
----
 
 ## [0.2.1] - 2026-10-26
 

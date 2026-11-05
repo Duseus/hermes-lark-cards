@@ -27,6 +27,7 @@ from hermes_lark_cards.cardkit.markdown import (
     _split_long_text,
     _strip_invalid_image_keys,
     optimize_markdown_style,
+    truncate_markdown,
 )
 from hermes_lark_cards.streaming.segments import Segment
 
@@ -597,7 +598,7 @@ class TestBuildHeader:
             ("streaming", "blue", "Processing"),
             ("completed", "green", "Completed"),
             ("error", "red", "Error"),
-            ("stopped", "red", "Stopped"),
+            ("stopped", "yellow", "Stopped"),
             ("unknown", "green", "Completed"),
         ],
     )
@@ -642,7 +643,7 @@ class TestCompleteCardHeader:
             header_enabled=True,
         )
         assert "header" in card
-        assert card["header"]["template"] == "red"
+        assert card["header"]["template"] == "yellow"
 
     def test_error_has_red_header(self) -> None:
         card = build_complete_card(
@@ -767,3 +768,88 @@ class TestModelIconAndPanelStatus:
         assert header["icon_position"] == "right"
 
 
+
+# --- 围栏闭合 / 字节预算 ---
+
+class TestSplitLongTextFence:
+    def test_code_fence_closed_in_each_chunk(self) -> None:
+        code = "\n".join(f"line {i}: print('hello world')" for i in range(400))
+        text = f"```python\n{code}\n```"
+        parts = _split_long_text(text, limit=1500)
+        assert len(parts) > 1
+        for part in parts:
+            assert part.count("```") % 2 == 0, part[:120]
+        # 后续块要重新打开同语言围栏
+        assert parts[1].lstrip().startswith("```python")
+
+    def test_tilde_fence_preserved(self) -> None:
+        text = "~~~js\n" + "\n".join("x = 1" for _ in range(200)) + "\n~~~"
+        parts = _split_long_text(text, limit=800)
+        assert len(parts) > 1
+        for part in parts:
+            assert part.count("~~~") % 2 == 0, part[:120]
+
+
+class TestTruncateMarkdown:
+    def test_short_text_untouched(self) -> None:
+        text = "hello"
+        out, dropped = truncate_markdown(text, 100)
+        assert out == text
+        assert dropped == 0
+
+    def test_truncate_closes_fence(self) -> None:
+        body = "\n".join(f"row {i}" for i in range(50))
+        text = f"# Head\n```python\n{body}\n```\n"
+        out, dropped = truncate_markdown(text, 80)
+        assert dropped > 0
+        assert out.count("```") % 2 == 0
+        assert out.startswith("# Head")
+
+    def test_truncate_prefers_line_boundary(self) -> None:
+        text = "aaaa\nbbbb\ncccc\ndddd\n"
+        out, _ = truncate_markdown(text, 10)
+        assert out.endswith("\n")
+
+
+class TestByteBudget:
+    @staticmethod
+    def _long_answer(n: int = 40) -> str:
+        return "\n\n".join(f"## 第 {i} 段\n" + "内容" * 400 for i in range(n))
+
+    def test_unlimited_budget_keeps_everything(self) -> None:
+        seg = _seg("answer", self._long_answer())
+        card = build_complete_card(
+            segments=[seg],
+            all_tool_steps=[],
+            footer_data={"model": "m", "duration": 1.0},
+            max_bytes=0,
+        )
+        assert len(json.dumps(card, ensure_ascii=False).encode("utf-8")) > 30000
+
+    @pytest.mark.parametrize("budget", [30000, 12000, 3000])
+    def test_budget_enforced(self, budget: int) -> None:
+        seg = _seg("answer")
+        seg.text = self._long_answer()
+        card = build_complete_card(
+            segments=[seg],
+            all_tool_steps=[],
+            footer_data={"model": "m", "duration": 1.0},
+            max_bytes=budget,
+        )
+        size = len(json.dumps(card, ensure_ascii=False).encode("utf-8"))
+        assert size <= budget, size
+
+    def test_budget_keeps_footer(self) -> None:
+        seg = _seg("answer")
+        seg.text = self._long_answer(20)
+        card = build_complete_card(
+            segments=[seg],
+            all_tool_steps=[],
+            footer_data={"model": "m", "duration": 1.0, "input_tokens": 100},
+            footer_fields=[["status", "elapsed", "model"], ["tokens"]],
+            max_bytes=6000,
+        )
+        texts = [json.dumps(e, ensure_ascii=False) for e in card["body"]["elements"]]
+        assert any("Completed" in t or "已完成" in t for t in texts)
+        # model / tokens 落在底栏同一行 markdown 里，裁剪后必须仍在
+        assert any("· m" in t and "↑ 100" in t for t in texts)

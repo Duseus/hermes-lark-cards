@@ -363,3 +363,80 @@ def test_nested_lark_domain_uses_larksuite_url() -> None:
 
     with patch.dict(os.environ, {}, clear=True):
         assert cfg.feishu_base_url == "https://open.larksuite.com"
+
+class TestConfigFileCache:
+    def test_reuses_parsed_result_until_file_changes(self, tmp_path) -> None:
+        from hermes_lark_cards.config import load_config_file
+
+        path = tmp_path / "config.yaml"
+        path.write_text("streaming:\n  enabled: false\n", encoding="utf-8")
+        first = load_config_file(path)
+        assert first["streaming"]["enabled"] is False
+
+        second = load_config_file(path)
+        assert second is first  # 命中缓存，不重新解析
+
+        path.write_text("streaming:\n  enabled: true\n", encoding="utf-8")
+        os.utime(path, ns=(path.stat().st_atime_ns, path.stat().st_mtime_ns + 1_000_000))
+        third = load_config_file(path)
+        assert third["streaming"]["enabled"] is True
+
+    def test_missing_file_returns_empty(self, tmp_path) -> None:
+        from hermes_lark_cards.config import load_config_file
+
+        assert load_config_file(tmp_path / "nope.yaml") == {}
+
+    def test_invalid_yaml_returns_empty(self, tmp_path) -> None:
+        from hermes_lark_cards.config import load_config_file
+
+        path = tmp_path / "config.yaml"
+        path.write_text("streaming: [unclosed\n", encoding="utf-8")
+        assert load_config_file(path) == {}
+
+class TestCardDurationFallback:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("abc", 600),
+            (None, 600),
+            (0, 600),
+            (-5, 600),
+            ("120", 120),
+            (300, 300),
+        ],
+    )
+    def test_bad_values_fall_back(self, raw, expected) -> None:
+        cfg = _make_config({"streaming": {"card_ttl_sec": raw}})
+        assert cfg.card_duration_sec == expected
+
+class TestMaxCardBytes:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [("abc", 30000), (None, 30000), (0, 0), (-1, 0), (5000, 5000)],
+    )
+    def test_values(self, raw, expected) -> None:
+        cfg = _make_config({"streaming": {"max_card_bytes": raw}})
+        assert cfg.max_card_bytes == expected
+
+class TestWeatherSection:
+    def test_streaming_weather_wins_over_top_level(self) -> None:
+        cfg = _make_config(
+            {
+                "streaming": {"weather": {"place": "内层", "latitude": 1, "longitude": 2}},
+                "weather": {"place": "外层", "latitude": 9, "longitude": 9},
+            }
+        )
+        assert cfg.weather_place == "内层"
+        assert cfg.weather_latitude == 1.0
+        assert cfg.weather_longitude == 2.0
+
+    def test_top_level_weather_fallback(self) -> None:
+        cfg = _make_config({"weather": {"place": "外层", "latitude": "31.5"}})
+        assert cfg.weather_place == "外层"
+        assert cfg.weather_latitude == 31.5
+        assert cfg.weather_longitude == 120.30
+
+    def test_bad_coordinates_fall_back(self) -> None:
+        cfg = _make_config({"streaming": {"weather": {"latitude": "x", "longitude": None}}})
+        assert cfg.weather_latitude == 30.42
+        assert cfg.weather_longitude == 120.30

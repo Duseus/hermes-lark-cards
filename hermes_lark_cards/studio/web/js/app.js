@@ -16,6 +16,8 @@ window.StudioApp = {
   state: {
     enabled: true,
     width_mode: "default",
+    card_ttl_sec: 600,
+    max_card_bytes: 30000,
     panel_expanded: false,
     header: { enabled: false, title: "" },
     body: { text_size: "normal_v2" },
@@ -71,6 +73,7 @@ window.StudioApp = {
       const res = await fetch("/api/health");
       const data = await res.json();
       if (data && data.version) {
+        window.__APP_VERSION = data.version;
         document.getElementById("versionBadge").textContent = `v${data.version}`;
       }
     } catch (e) {
@@ -124,7 +127,15 @@ window.StudioApp = {
   applyPreset(presetId) {
     const p = this.presets[presetId];
     if (!p) return;
+    // 预设只描述版式；生命周期/体积预算不属于视觉预设，切预设时保留当前值。
+    const keep = {
+      card_ttl_sec: this.state.card_ttl_sec,
+      max_card_bytes: this.state.max_card_bytes,
+    };
     this.state = JSON.parse(JSON.stringify(p.config));
+    for (const [k, v] of Object.entries(keep)) {
+      if (typeof v === "number") this.state[k] = v;
+    }
     this.syncForm();
     this.renderFooterRows();
     this.refreshSimulator();
@@ -268,6 +279,11 @@ window.StudioApp = {
     document.getElementById("togglePanelExpanded").checked = !!this.state.panel_expanded;
     document.getElementById("toggleFooter").checked = !!(this.state.footer && this.state.footer.enabled);
     document.getElementById("toggleFooterLabel").checked = !!(this.state.footer && this.state.footer.show_label);
+
+    const ttlEl = document.getElementById("inputCardTtl");
+    if (ttlEl) ttlEl.value = this.state.card_ttl_sec ?? 600;
+    const bytesEl = document.getElementById("inputMaxCardBytes");
+    if (bytesEl) bytesEl.value = this.state.max_card_bytes ?? 30000;
 
     document.getElementById("selectWidthMode").value = this.state.width_mode || "default";
     document.getElementById("selectBodyTextSize").value = (this.state.body && this.state.body.text_size) || "normal_v2";
@@ -521,6 +537,15 @@ window.StudioApp = {
       this.refreshSimulator();
     });
 
+    document.getElementById("inputCardTtl").addEventListener("input", e => {
+      const v = parseInt(e.target.value, 10);
+      if (Number.isFinite(v)) this.state.card_ttl_sec = Math.min(86400, Math.max(1, v));
+    });
+    document.getElementById("inputMaxCardBytes").addEventListener("input", e => {
+      const v = parseInt(e.target.value, 10);
+      if (Number.isFinite(v)) this.state.max_card_bytes = Math.min(5000000, Math.max(0, v));
+    });
+
     document.getElementById("btnAddFooterRow").addEventListener("click", () => this.addNewRow());
     document.getElementById("btnOpenSaveTemplate").addEventListener("click", () => this.openSaveTemplateModal());
     document.getElementById("btnCancelTemplate").addEventListener("click", () => this.closeSaveTemplateModal());
@@ -540,6 +565,12 @@ window.StudioApp = {
   async saveConfig() {
     try {
       this.cleanFooterState();
+      // 数字输入框被清空时不要提交 null，交给后端回退默认值。
+      for (const key of ["card_ttl_sec", "max_card_bytes"]) {
+        if (typeof this.state[key] !== "number" || !Number.isFinite(this.state[key])) {
+          delete this.state[key];
+        }
+      }
       const res = await fetch("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

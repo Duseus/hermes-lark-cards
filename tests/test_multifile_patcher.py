@@ -270,3 +270,30 @@ def test_cli_recovery_write_failure_preserves_installation(installation, tmp_pat
         assert getattr(cli, operation)() == 1
     assert failed
     assert snapshot(tmp_path) == before
+
+
+class TestInstallConfigHint:
+    def test_hint_when_streaming_missing(self, tmp_path, monkeypatch, capsys):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("gateway: {}\n", encoding="utf-8")
+        monkeypatch.setattr("hermes_lark_cards.config._config_path", lambda home=None: cfg)
+        cli._print_config_hint()
+        out = capsys.readouterr().out
+        assert "streaming.enabled" in out
+        assert "  enabled: true" in out
+        assert str(cfg) in out
+
+    def test_hint_when_config_missing(self, tmp_path, monkeypatch, capsys):
+        cfg = tmp_path / "nope.yaml"
+        monkeypatch.setattr("hermes_lark_cards.config._config_path", lambda home=None: cfg)
+        cli._print_config_hint()
+        out = capsys.readouterr().out
+        assert "not found" in out
+        assert "streaming:" in out
+
+    def test_no_hint_when_enabled(self, tmp_path, monkeypatch, capsys):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("streaming:\n  enabled: true\n", encoding="utf-8")
+        monkeypatch.setattr("hermes_lark_cards.config._config_path", lambda home=None: cfg)
+        cli._print_config_hint()
+        assert capsys.readouterr().out == ""

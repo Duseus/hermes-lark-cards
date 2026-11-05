@@ -149,3 +149,33 @@ async def test_upload_image_bytes() -> None:
     assert key == "img_v3_test_brand_logo"
     assert create_image.await_count == 1
 
+
+class TestImageUrlSafety:
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "file:///etc/passwd",
+            "http://127.0.0.1/a.png",
+            "http://localhost/a.png",
+            "http://169.254.169.254/latest/meta-data",
+            "http://10.0.0.5/a.png",
+            "http://[::1]/a.png",
+            "ftp://example.com/a.png",
+            "http://user:pass@example.com/a.png",
+            "http:///a.png",
+        ],
+    )
+    def test_unsafe_urls_rejected(self, url: str) -> None:
+        from hermes_lark_cards.feishu import is_safe_image_url
+
+        assert is_safe_image_url(url) is False
+
+    def test_public_url_allowed(self) -> None:
+        from hermes_lark_cards.feishu import is_safe_image_url
+
+        assert is_safe_image_url("https://example.com/a.png") is True
+
+    def test_unresolvable_host_rejected(self) -> None:
+        from hermes_lark_cards.feishu import is_safe_image_url
+
+        assert is_safe_image_url("https://no-such-host.invalid/a.png") is False

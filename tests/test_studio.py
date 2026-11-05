@@ -1,15 +1,19 @@
 """Tests for hermes_lark_cards.studio."""
 
 import json
-from pathlib import Path
-from unittest.mock import patch
+import threading
+import urllib.error
+import urllib.request
 
+import pytest
 import yaml
 
+from hermes_lark_cards import __version__
 from hermes_lark_cards.studio.server import (
     PRESETS,
+    StudioRequestHandler,
+    _StudioServer,
     _validate_ui_payload,
-    read_full_config,
     write_streaming_config,
 )
 
@@ -74,7 +78,7 @@ def test_write_streaming_config(tmp_path, monkeypatch):
         },
     }
 
-    ok, msg = write_streaming_config(ui_cfg)
+    ok, _msg = write_streaming_config(ui_cfg)
     assert ok is True
 
     # Read back and verify deep merge preserves unrelated gateway config
@@ -85,13 +89,6 @@ def test_write_streaming_config(tmp_path, monkeypatch):
     assert saved_cfg["streaming"]["header"]["enabled"] is True
     assert saved_cfg["streaming"]["footer"]["fields"] == [["status", "model"]]
 
-import io
-import threading
-import time
-import urllib.request
-import urllib.error
-from http.server import HTTPServer
-from hermes_lark_cards.studio.server import _StudioServer, StudioRequestHandler
 
 
 def test_studio_http_server_endpoints(tmp_path, monkeypatch):
@@ -142,7 +139,7 @@ def test_studio_http_server_endpoints(tmp_path, monkeypatch):
             assert res.status == 200
             data = json.loads(res.read().decode("utf-8"))
             assert data["ok"] is True
-            assert data["version"] == "0.3.1"
+            assert data["version"] == __version__
 
         # 3. Test GET /api/presets
         with urllib.request.urlopen(f"{base_url}/api/presets") as res:
@@ -194,7 +191,7 @@ def test_studio_http_server_endpoints(tmp_path, monkeypatch):
         )
         try:
             urllib.request.urlopen(bad_req)
-            assert False, "Should have raised HTTPError"
+            raise AssertionError("Should have raised HTTPError")
         except urllib.error.HTTPError as err:
             assert err.code == 400
             body = json.loads(err.read().decode("utf-8"))
@@ -231,7 +228,7 @@ def test_custom_header_title_roundtrip(tmp_path, monkeypatch):
             "title": "⚡ 智选模型处理中",
         }
     }
-    ok, msg = write_streaming_config(ui_cfg)
+    ok, _msg = write_streaming_config(ui_cfg)
     assert ok is True
 
     saved = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
@@ -300,3 +297,116 @@ def test_custom_templates_api_crud(tmp_path, monkeypatch):
     finally:
         server.shutdown()
         server.server_close()
+
+def _start_studio(cfg_file):
+    server = _StudioServer(("127.0.0.1", 0), StudioRequestHandler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, f"http://127.0.0.1:{port}"
+
+class TestStudioCsrf:
+    def test_cross_site_post_rejected(self, tmp_path, monkeypatch) -> None:
+        cfg_file = tmp_path / "config.yaml"
+        cfg_file.write_text("streaming:\n  enabled: true\n", encoding="utf-8")
+        monkeypatch.setattr("hermes_lark_cards.studio.server._config_path", lambda: cfg_file)
+        server, base_url = _start_studio(cfg_file)
+        try:
+            req = urllib.request.Request(
+                f"{base_url}/api/config",
+                data=b'{"width_mode":"fill"}',
+                headers={
+                    "Content-Type": "application/json",
+                    "Origin": "https://evil.example",
+                },
+                method="POST",
+            )
+            with pytest.raises(urllib.error.HTTPError) as exc:
+                urllib.request.urlopen(req)
+            assert exc.value.code == 403
+            # 未被写入
+            saved = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))["streaming"]
+            assert saved.get("width_mode") != "fill"
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_plain_text_content_type_rejected(self, tmp_path, monkeypatch) -> None:
+        cfg_file = tmp_path / "config.yaml"
+        cfg_file.write_text("streaming:\n  enabled: true\n", encoding="utf-8")
+        monkeypatch.setattr("hermes_lark_cards.studio.server._config_path", lambda: cfg_file)
+        server, base_url = _start_studio(cfg_file)
+        try:
+            req = urllib.request.Request(
+                f"{base_url}/api/config",
+                data=b'{"width_mode":"fill"}',
+                headers={"Content-Type": "text/plain"},
+                method="POST",
+            )
+            with pytest.raises(urllib.error.HTTPError) as exc:
+                urllib.request.urlopen(req)
+            assert exc.value.code == 415
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_file_permissions_preserved(self, tmp_path, monkeypatch) -> None:
+        cfg_file = tmp_path / "config.yaml"
+        cfg_file.write_text("streaming:\n  enabled: true\n", encoding="utf-8")
+        cfg_file.chmod(0o600)
+        monkeypatch.setattr("hermes_lark_cards.studio.server._config_path", lambda: cfg_file)
+
+        ok, _ = write_streaming_config({"width_mode": "fill"})
+        assert ok is True
+        assert (cfg_file.stat().st_mode & 0o777) == 0o600
+        backup = cfg_file.with_suffix(cfg_file.suffix + ".bak")
+        if backup.exists():
+            assert (backup.stat().st_mode & 0o777) == 0o600
+
+    def test_index_html_injects_version(self, tmp_path, monkeypatch) -> None:
+        cfg_file = tmp_path / "config.yaml"
+        cfg_file.write_text("streaming:\n  enabled: true\n", encoding="utf-8")
+        monkeypatch.setattr("hermes_lark_cards.studio.server._config_path", lambda: cfg_file)
+        server, base_url = _start_studio(cfg_file)
+        try:
+            with urllib.request.urlopen(f"{base_url}/") as res:
+                html = res.read().decode("utf-8")
+            assert "__VERSION__" not in html
+            assert f"?v={__version__}" in html
+        finally:
+            server.shutdown()
+            server.server_close()
+
+class TestValidateUiPayloadTypes:
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"enabled": "yes"},
+            {"panel_expanded": 1},
+            {"card_ttl_sec": "abc"},
+            {"card_ttl_sec": 0},
+            {"card_ttl_sec": 86401},
+            {"max_card_bytes": "big"},
+            {"max_card_bytes": -1},
+            {"max_card_bytes": 5_000_001},
+        ],
+    )
+    def test_rejects_wrong_types(self, payload) -> None:
+        ok, err = _validate_ui_payload(payload)
+        assert ok is False, payload
+        assert err
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"enabled": True},
+            {"panel_expanded": False},
+            {"card_ttl_sec": 600},
+            {"card_ttl_sec": 1},
+            {"max_card_bytes": 0},
+            {"max_card_bytes": 30000},
+        ],
+    )
+    def test_accepts_valid(self, payload) -> None:
+        ok, err = _validate_ui_payload(payload)
+        assert ok is True, err

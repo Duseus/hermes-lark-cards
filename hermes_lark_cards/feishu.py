@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import io
+import ipaddress
 import json
 import logging
 import re
+import socket
 import uuid
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import URLError
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 import lark_oapi as lark
@@ -53,6 +56,50 @@ CARDKIT_TRANSIENT_ERROR_CODES = frozenset(
     }
 )
 _TRANSIENT_RETRY_DELAYS_SEC = (0.15, 0.5, 1.0)
+
+# 图片下载白名单：模型输出里的图片 URL 不可信，必须挡住内网/元数据地址。
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+_ALLOWED_IMAGE_TYPES = ("image/",)
+
+
+def _is_public_host(host: str) -> bool:
+    """域名解析后所有地址都必须是公网地址（防 SSRF / DNS rebinding 首跳）。"""
+    if not host:
+        return False
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except (OSError, UnicodeError):
+        return False
+    if not infos:
+        return False
+    for info in infos:
+        try:
+            addr = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if (
+            addr.is_private
+            or addr.is_loopback
+            or addr.is_link_local
+            or addr.is_reserved
+            or addr.is_multicast
+            or addr.is_unspecified
+        ):
+            return False
+    return True
+
+
+def is_safe_image_url(url: str) -> bool:
+    """只允许 http/https + 公网主机。"""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    if parsed.username or parsed.password:
+        return False
+    return _is_public_host(parsed.hostname or "")
 
 
 def _sanitize_message(msg: str) -> str:
@@ -345,13 +392,24 @@ class FeishuClient:
 
     @staticmethod
     def _download_image(url: str, timeout: int = 15) -> bytes | None:
-        """同步下载图片（在线程池中运行）."""
+        """同步下载图片（在线程池中运行），限制协议、目标网段、类型与大小."""
+        if not is_safe_image_url(url):
+            _logger.info("image download blocked (unsafe url): %s", url)
+            return None
         try:
             req = Request(url, headers={"User-Agent": "hermes-lark-cards/1.0"})
             with urlopen(req, timeout=timeout) as resp:
                 if resp.status != 200:
                     return None
-                return bytes(resp.read())
+                ctype = (resp.headers.get("Content-Type") or "").lower()
+                if ctype and not any(ctype.startswith(prefix) for prefix in _ALLOWED_IMAGE_TYPES):
+                    _logger.info("image download blocked (content-type=%s): %s", ctype, url)
+                    return None
+                data = resp.read(MAX_IMAGE_BYTES + 1)
+                if len(data) > MAX_IMAGE_BYTES:
+                    _logger.info("image download blocked (too large): %s", url)
+                    return None
+                return bytes(data)
         except (URLError, OSError):
             _logger.debug("image download failed: %s", url)
             return None

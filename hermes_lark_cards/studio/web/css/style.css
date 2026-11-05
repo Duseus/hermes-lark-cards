@@ -383,6 +383,13 @@ header.navbar {
   transition: border-color 0.2s;
 }
 
+
+.form-input-num {
+  width: 132px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
 .form-input:focus {
   border-color: var(--primary);
 }

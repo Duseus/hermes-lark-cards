@@ -64,7 +64,7 @@ const CardSimulator = {
     const modelName = modelMeta.name;
     const modelIconHtml = `
       <span class="model-brand-icon" title="${modelName}">
-        <img src="assets/icons/${modelMeta.file}?v=0.3.1" alt="${modelName}" onerror="this.outerHTML='${modelMeta.fallbackToken}'" />
+        <img src="assets/icons/${modelMeta.file}${window.__APP_VERSION ? `?v=${window.__APP_VERSION}` : ""}" alt="${modelName}" onerror="this.outerHTML='${modelMeta.fallbackToken}'" />
       </span>
     `;
 
@@ -98,12 +98,12 @@ const CardSimulator = {
       const linesHtml = fieldsMatrix.map(row => {
         const parts = row.map(field => {
           if (field === "status") return "✅ 已完成";
-          if (field === "elapsed") return showLabel ? "耗时: 1.2s" : "1.2s";
-          if (field === "model") return `⚕ ${modelName}`;
+          if (field === "elapsed") return showLabel ? "耗时 1.2s" : "1.2s";
+          if (field === "model") return modelName;
           if (field === "tokens") return "↑ 1.2K ↓ 480";
           if (field === "context") return "15.2K/128K (11%)";
           if (field === "weather") return "☀️ 临平 21.5°C/14.0°C · 湿度 68%";
-          if (field === "hitokoto") return "💬 <i>保持好奇，持续折腾。</i>";
+          if (field === "hitokoto") return "<i>保持好奇，持续折腾。</i> —— <i>佚名</i>";
           return field;
         });
         return `<div class="footer-line">${parts.map(p => `<span>${p}</span>`).join(" · ")}</div>`;

@@ -31,6 +31,8 @@ class FlushController:
         self._card_message_ready = False
         self._flush_resolvers: list[asyncio.Future[None]] = []
         self._loop = loop if loop is not None else asyncio.get_running_loop()
+        # 频控退避：>0 时暂停调度，到点后自动恢复
+        self._backoff_until = 0.0
 
     @property
     def throttle_ms(self) -> float:
@@ -44,6 +46,11 @@ class FlushController:
         if self._completed or not self._card_message_ready:
             return
         now = time.monotonic()
+        if now < self._backoff_until:
+            # 处于 API 频控退避窗口：等退避结束后再刷，避免连续撞限流
+            if self._pending_timer is None:
+                self._schedule(delay=self._backoff_until - now, do_flush=do_flush)
+            return
         elapsed = now - self._last_update_time
 
         if elapsed >= self._throttle_ms:
@@ -88,6 +95,15 @@ class FlushController:
     def set_throttle(self, ms: float) -> None:
         self._throttle_ms = ms
 
+    def apply_backoff(self, seconds: float) -> None:
+        """收到频控错误后暂停调度一段时间，并暂停自动重刷."""
+        if seconds <= 0:
+            return
+        until = time.monotonic() + seconds
+        if until > self._backoff_until:
+            self._backoff_until = until
+        _logger.info("flush backoff applied: %.2fs", seconds)
+
     def set_card_message_ready(self, ready: bool) -> None:
         """设置卡片消息已就绪，初始化时间戳."""
         self._card_message_ready = ready
@@ -127,10 +143,14 @@ class FlushController:
                 if not r.done():
                     r.set_result(None)
 
-        # 如果 flush 期间又有新数据 → 立即重刷
+        # 如果 flush 期间又有新数据 → 退避结束后重刷
         if self._needs_reflush and not self._completed:
             self._needs_reflush = False
-            self._loop.call_soon(asyncio.create_task, self._do_flush(do_flush))
+            delay = max(0.0, self._backoff_until - time.monotonic())
+            if delay > 0:
+                self._schedule(delay=delay, do_flush=do_flush)
+            else:
+                self._loop.call_soon(asyncio.create_task, self._do_flush(do_flush))
 
     def _cancel_timer(self) -> None:
         if self._pending_timer is not None:

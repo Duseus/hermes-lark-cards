@@ -68,6 +68,16 @@ _AUTH_HEADER_RE = re.compile(
 _SECRET_FLAG_RE = re.compile(
     r'((?:^|[\s"\'`])(--?[A-Za-z0-9][A-Za-z0-9-]*)(=|\s+)("(?:[^"]*)"|\'(?:[^\']*)\'|[^\s"\'`]+))'
 )
+# JSON 形式的敏感键：{"api_key": "sk-..."} / {'token': '...'}
+_JSON_SECRET_RE = re.compile(
+    r'("([A-Za-z0-9_.-]+)"\s*:\s*")([^"]*)(")'
+)
+# 已知令牌前缀：即使键名不敏感也要脱敏
+_TOKEN_PREFIX_RE = re.compile(
+    r"\b(sk-[A-Za-z0-9_-]{16,}|sk-ant-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}"
+    r"|gho_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[bpas]-[A-Za-z0-9-]{10,}"
+    r"|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,})\b"
+)
 
 
 def redact_inline_secrets(value: str) -> str:
@@ -85,16 +95,27 @@ def redact_inline_secrets(value: str) -> str:
             return f"{m.group(1)}{m.group(2)}{m.group(3)}[redacted]"
         return str(m.group(0))
 
-    return _SECRET_FLAG_RE.sub(
+    def _redact_json(m: re.Match) -> str:
+        key = str(m.group(2))
+        if _SENSITIVE_NAME_RE.search(key):
+            return f"{m.group(1)}[redacted]{m.group(4)}"
+        return str(m.group(0))
+
+    result = _SECRET_FLAG_RE.sub(
         _redact_flag,
         _AUTH_HEADER_RE.sub(r"\1[redacted]", _INLINE_ASSIGNMENT_RE.sub(_redact_assign, value)),
     )
+    result = _JSON_SECRET_RE.sub(_redact_json, result)
+    return _TOKEN_PREFIX_RE.sub("[redacted]", result)
 
 
 def _sanitize_detail(text: str, sanitizer: str | None) -> str:
     """根据 sanitizer 类型清洗 detail 文本."""
-    if not text or not sanitizer:
+    if not text:
         return text
+    if not sanitizer:
+        # 未知工具（含 MCP）：没有专门的展示策略，但必须至少脱敏。
+        return redact_inline_secrets(text)
     cleaned = re.sub(r"<[^>]+>", "", text).strip()
     if not cleaned:
         return text
@@ -199,6 +220,25 @@ def _format_duration_label(ms: float) -> str:
     return f"{ms:.0f} ms" if ms < 1000 else f"{(ms / 1000):.1f} s"
 
 
+def _redact_structured(value: Any) -> Any:
+    """递归脱敏 dict/list 里的字符串，含被当成字符串塞进来的嵌套 JSON."""
+    if isinstance(value, dict):
+        return {k: _redact_structured(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact_structured(v) for v in value]
+    if isinstance(value, str):
+        cleaned = redact_inline_secrets(value)
+        stripped = cleaned.strip()
+        if stripped.startswith(("{", "[")):
+            try:
+                parsed = json.loads(stripped)
+            except json.JSONDecodeError:
+                return cleaned
+            return json.dumps(_redact_structured(parsed), ensure_ascii=False)
+        return cleaned
+    return value
+
+
 def _build_display_block(
     value: Any,
     fallback_lang: str = "json",
@@ -212,19 +252,22 @@ def _build_display_block(
         normalized = value.replace("\r\n", "\n").strip()
         if not normalized:
             return None
-        if sanitizer == "command":
-            normalized = redact_inline_secrets(normalized)
+        # 所有工具结果都过一遍脱敏：MCP 等未知工具没有专用 sanitizer，
+        # 但结果同样会渲染进群卡片。
+        normalized = redact_inline_secrets(normalized)
         if normalized.startswith("{") or normalized.startswith("["):
             try:
                 parsed = json.loads(normalized)
-                pretty = json.dumps(parsed, ensure_ascii=False, indent=2)
+                pretty = json.dumps(_redact_structured(parsed), ensure_ascii=False, indent=2)
                 return _fenced_block("json", pretty)
             except json.JSONDecodeError:
                 pass
         return _fenced_block("text" if fallback_lang == "json" else fallback_lang, normalized)
     if isinstance(value, (dict, list)):
         try:
-            return _fenced_block("json", json.dumps(value, ensure_ascii=False, indent=2))
+            return _fenced_block(
+                "json", json.dumps(_redact_structured(value), ensure_ascii=False, indent=2)
+            )
         except (TypeError, ValueError):
             pass
     normalized = str(value).strip()

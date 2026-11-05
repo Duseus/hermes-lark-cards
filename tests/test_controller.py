@@ -2082,3 +2082,148 @@ class TestBackgroundDeliver:
         assert result is False
         mock_client.upload_image.assert_not_called()
         mock_client.send_card_to_chat.assert_not_called()
+
+class TestStaleSessionSealing:
+    def test_prune_seals_stale_session_with_card(self) -> None:
+        ctrl = _setup_ctrl()
+        session = _make_session("stale")
+        session.state = SessionState.STREAMING
+        session.card_id = "card_x"
+        session.card_msg_id = "msg_x"
+        session.created_at = time.time() - ctrl._session_ttl - 5
+        ctrl._sessions["stale"] = session
+
+        with patch.object(ctrl, "_submit_coro", side_effect=lambda coro, loop: coro.close()) as submit:
+            ctrl._prune_stale_sessions()
+
+        assert session.state == SessionState.ABORTED
+        assert session.flush._completed
+        submit.assert_called_once()
+        assert "stale" not in ctrl._sessions
+
+    def test_prune_skips_sealing_without_card(self) -> None:
+        ctrl = _setup_ctrl()
+        session = _make_session("noc")
+        session.state = SessionState.CREATING
+        session.created_at = time.time() - ctrl._session_ttl - 5
+        ctrl._sessions["noc"] = session
+
+        with patch.object(ctrl, "_submit_coro", side_effect=lambda coro, loop: coro.close()) as submit:
+            ctrl._prune_stale_sessions()
+
+        submit.assert_not_called()
+        assert "noc" not in ctrl._sessions
+
+    def test_text_fallback_entries_expire(self) -> None:
+        ctrl = _setup_ctrl()
+        ctrl._text_fallback_needed.update({"a", "b"})
+        ctrl._text_fallback_aliases = {"a": {"a", "b"}, "b": {"a", "b"}}
+        ctrl._text_fallback_at = {"a": time.time() - 10_000, "b": time.time()}
+
+        ctrl._prune_text_fallback()
+
+        assert "a" not in ctrl._text_fallback_needed
+        assert "b" in ctrl._text_fallback_needed
+        assert "a" not in ctrl._text_fallback_aliases
+        assert "a" not in ctrl._text_fallback_at
+
+    def test_mark_fallback_records_timestamp(self) -> None:
+        ctrl = _setup_ctrl()
+        session = _make_session("m")
+        session.anchor_id = "q"
+
+        ctrl._mark_text_fallback_needed(session)
+
+        assert ctrl._text_fallback_at["m"] <= time.time()
+        assert ctrl._text_fallback_at["q"] == ctrl._text_fallback_at["m"]
+        assert ctrl.consume_text_fallback("q") is True
+        assert ctrl._text_fallback_at == {}
+
+    def test_sweeper_timer_rearms_while_sessions_exist(self) -> None:
+        ctrl = _setup_ctrl()
+        ctrl._sessions["x"] = _make_session("x")
+        with patch.object(controller_module.threading, "Timer") as timer_cls:
+            fake = MagicMock()
+            timer_cls.return_value = fake
+            ctrl._arm_sweeper()
+
+        assert timer_cls.called
+        assert fake.daemon is True
+        assert fake.start.called
+        fake.start.side_effect = lambda: None
+        # 重复 arm 不应创建第二个 timer
+        with patch.object(controller_module.threading, "Timer") as timer_cls2:
+            ctrl._arm_sweeper()
+        timer_cls2.assert_not_called()
+
+    def test_sweeper_tick_stops_when_no_sessions(self) -> None:
+        ctrl = _setup_ctrl()
+        ctrl._sweeper_timer = MagicMock()
+        with patch.object(ctrl, "_prune_stale_sessions") as prune, patch.object(ctrl, "_arm_sweeper") as arm:
+            ctrl._sweep_tick()
+        prune.assert_called_once()
+        arm.assert_not_called()
+        assert ctrl._sweeper_timer is None
+
+
+class TestClarifySplitNonBlocking:
+    def test_schedule_returns_without_waiting(self) -> None:
+        ctrl = _setup_ctrl()
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        ctrl._loop = loop
+        session = CardSession("msg_nonblock", "chat", loop)
+        ctrl._sessions["msg_nonblock"] = session
+
+        fake_future = MagicMock()
+
+        async def fake_split(_session):
+            return True
+
+        with patch.object(ctrl, "_do_clarify_split", side_effect=fake_split), patch.object(
+            controller_module.asyncio, "run_coroutine_threadsafe", return_value=fake_future,
+        ) as submit:
+            started = time.monotonic()
+            ctrl._schedule_clarify_split(session)
+            elapsed = time.monotonic() - started
+
+        # 让 mock 捕获的协程真正跑完，避免 "coroutine was never awaited"
+        coro = submit.call_args.args[0]
+        loop.run_until_complete(coro)
+
+        assert elapsed < 1.0
+        # 不等结果，只挂完成回调
+        assert fake_future.add_done_callback.called
+        loop.close()
+
+
+class TestFlushErrorHandling:
+    def test_rate_limit_applies_exponential_backoff(self) -> None:
+        ctrl = _setup_ctrl()
+        session = _make_session("rl")
+        err = FeishuAPIError("rate limited", code=230020)
+
+        ctrl._handle_flush_error(err, session)
+        first = session.flush._backoff_until
+        assert session.rate_limit_strikes == 1
+        assert first > time.monotonic()
+
+        ctrl._handle_flush_error(err, session)
+        assert session.rate_limit_strikes == 2
+        assert session.flush._backoff_until > first
+
+    def test_rate_limit_without_session_does_not_raise(self) -> None:
+        ctrl = _setup_ctrl()
+        ctrl._handle_flush_error(FeishuAPIError("rate limited", code=230020), None)
+
+    def test_element_limit_forces_split(self) -> None:
+        ctrl = _setup_ctrl()
+        session = _make_session("elem")
+        session.split_disabled = True
+        err = FeishuAPIError("content failed", code=230099)
+        err.extract_sub_code = lambda: 11310  # type: ignore[method-assign]
+
+        ctrl._handle_flush_error(err, session)
+
+        assert session.split_disabled is False
+        assert session.force_split_on_next_flush is True

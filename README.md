@@ -41,17 +41,17 @@
 │      Read file (25 ms)                                 │
 │      /etc/resolv.conf                                  │
 │  ──────────────────────────────────────────────────    │
-│  ✅ 已完成 · 4.8s · ⚕DeepSeek-V3                       │
+│  ✅ 已完成 · 4.8s · DeepSeek-V3                        │
 │  ↑ 1.2K ↓ 480 · 15.2K/128K (11%)                       │
 │  ☀️ 临平 21.5°C/14.0°C · 湿度 68%                      │
-│  💬 「保持好奇，持续折腾。」                           │
+│  *保持好奇，持续折腾。* —— *佚名*                      │
 └────────────────────────────────────────────────────────┘
 ```
 
-- **三色状态感知**：蓝色（流式生成中）、绿色（成功完成）、红色（异常或被打断 `/stop`）。
+- **状态色感知**：蓝色（流式生成中）、绿色（成功完成）、黄色（被 `/stop` 或超时中断）、红色（执行异常）。
 - **打字机实时流式**：高频小步缓冲刷字（~15ms 节流节奏），告别传统全量等待的漫长空白。
 - **可折叠过程面板**：思考链与工具调用步骤（状态、耗时、调用参数与结果）按轮次收拢，界面清爽。
-- **长文本与防爆保护**：自适应拆卡机制与 30KB / 200 元素硬上限截断保护，杜绝飞书卡片渲染崩溃。
+- **长文本与防爆保护**：自适应拆卡机制，外加 `streaming.max_card_bytes`（默认 30000 字节）兜底——超预算时只压缩回答正文并追加省略提示，避免飞书卡片渲染失败。
 
 ---
 
@@ -135,30 +135,41 @@ systemctl restart hermes-gateway
 在 Hermes 根目录下的 `config.yaml`（通常位于 `~/.hermes/config.yaml`）中配置：
 
 ```yaml
-hermes_lark_cards:
-  streaming:
-    enabled: true              # 是否启用流式卡片（默认: true）
-    width_mode: "fill"         # 卡片宽度模式: default | fill
-    header_enabled: false      # 是否展示卡片大标题（默认 false，直接正文打字）
-    body_text_size: "normal_v2"# 正文字号: normal_v2 | heading
-    show_tool_use: true        # 是否在卡片内展示工具调用过程面板
-    panel_expanded: false      # 终态时工具面板是否默认展开
-
+streaming:
+  enabled: true                # 是否启用流式卡片（默认: false，必须显式开启）
+  width_mode: fill             # 卡片宽度: default | compact | fill
+  card_ttl_sec: 600            # 会话看门狗超时（秒），默认 600
+  max_card_bytes: 30000        # 完成态卡片 JSON 字节预算，0 = 不限制
+  panel_expanded: false        # 终态时过程面板是否默认展开
+  header:
+    enabled: false             # 是否展示卡片大标题（默认 false，直接正文打字）
+    title: ""                  # 自定义标题；留空则用中英文默认状态文案
+  body:
+    text_size: normal_v2       # 正文字号: normal_v2 | heading
   footer:
     enabled: true              # 是否展示统一底栏
-    text_size: "notation"      # 底栏字号
-    fields:                    # 底栏行与字段排布
+    text_size: notation        # 底栏字号
+    show_label: false          # 是否给耗时/上下文加「耗时 」「上下文 」前缀
+    fields:                    # 底栏行与字段排布（二维数组）
       - ["status", "elapsed", "model"]
       - ["tokens", "context"]
       - ["weather"]
       - ["hitokoto"]
-
-  # 天气配置（可选）
-  weather:
-    place: "临平"
+  weather:                     # 可选；也兼容写在顶层 weather:
+    place: 临平
     latitude: 30.42
     longitude: 120.30
+
+display:
+  platforms:
+    feishu:
+      show_reasoning: false    # 是否展示模型推理过程
+      show_tool_use: true      # 是否在卡片内展示工具调用面板
 ```
+
+> `streaming` 与 `display` 都是 Hermes 主配置的**顶层键**，不再需要 `hermes_lark_cards:` 包裹。
+> `max_card_bytes` 只裁剪回答正文：超出预算时从尾部逐段压缩并追加「内容过长，已省略」提示，
+> 底栏、工具面板与思考面板不受影响；设为 `0` 关闭该限制。
 
 ---
 
